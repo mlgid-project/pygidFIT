@@ -12,7 +12,7 @@ authors = [
     {name = "Vladimir Starostin", email = "vladimir.starostin@uni-tuebingen.de"},
     {name = "Ainur Abuakev", email = "ainur.abukaev@uni-tuebingen.de"},
 ]
-license = "MIT"
+license = { file = "LICENSE" }
 
 requires-python = ">=3.7"
 dependencies = [
