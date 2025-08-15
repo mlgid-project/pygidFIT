@@ -88,7 +88,7 @@ def _get_missing_wedge_pol(wavelength, q_abs, phi):
     return bool(np.abs(q_abs) > np.abs(2*k*np.cos(np.deg2rad(phi))))
 
 
-def make_box_attributes(indices, boxes, fitting_result, type = None, debag = False):
+def make_box_attributes(indices, boxes, fitting_result, type = None, debug = False):
 
     params = fitting_result['params']
     errors = fitting_result['errors']
@@ -140,6 +140,6 @@ def make_box_attributes(indices, boxes, fitting_result, type = None, debag = Fal
         if not 'theta' in box.fitting_error:
             box.fitting_error['theta'] = np.nan
         i+=1
-        if debag:
+        if debug:
             print("fitting_result",box.fitting_result)
             print("fitting_error", box.fitting_error)

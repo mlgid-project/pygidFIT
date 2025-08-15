@@ -10,7 +10,7 @@ def run_scans(
         batch_size = 10,
         crit_angle = 0,
         polar_shape = np.array([512,1024]),
-        debag = False,
+        debug = False,
         multiprocessing = True,
     ):
     """
@@ -28,7 +28,7 @@ def run_scans(
         batch_size,
         crit_angle,
         polar_shape,
-        debag,
+        debug,
         multiprocessing
     )
 
@@ -41,5 +41,5 @@ if __name__ == "__main__":
               polar_shape=[512 * 2, 1024 * 2],
               batch_size=1,
               crit_angle=0.1,
-              debag=False,
+              debug=False,
               multiprocessing=False)

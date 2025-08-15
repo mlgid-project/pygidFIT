@@ -79,10 +79,10 @@ def polar_conversion(img: np.ndarray, yy: np.ndarray, zz: np.ndarray, algorithm:
 
 
 
-def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, debag = False,
+def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, debug = False,
                      multiprocessing = True):
     img = img_preprocessing(img, ai, crit_angle, wavelength, q_z)
-    if debag:
+    if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
         axes.imshow(img, extent=[q_xy.min(), q_xy.max(), q_z.min(), q_z.max()], cmap='viridis', origin='lower', norm=norm)
@@ -117,7 +117,7 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     # masked_img = np.where(mask, img, np.nan)
     masked_img = np.where(~mask, img, np.nan)
 
-    if debag:
+    if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
 
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
@@ -144,22 +144,22 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     time0 = time.time()
 
     if multiprocessing:
-        fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debag=debag)
+        fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=debug)
     else:
         for cluster in clusters:
             if cluster.type == 'rings':
-                fitting_result = fit_ring_cluster(cluster, boxes, masked_img, debag)
-                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debag)
+                fitting_result = fit_ring_cluster(cluster, boxes, masked_img, debug)
+                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             elif cluster.type == 'peaks':
-                fitting_result = fit_peak_cluster(cluster, boxes, img, debag)
-                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debag)
+                fitting_result = fit_peak_cluster(cluster, boxes, img, debug)
+                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
         for cluster in clusters:
             if cluster.type == 'both':
-                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debag)
-                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debag)
+                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
+                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
 
             # elif cluster.type == 'both':
-            #     cluster.fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debag)
+            #     cluster.fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
     time1 = time.time()
     print(f"image fitting took {(time1 - time0) * 1000} ms")
 
@@ -173,7 +173,7 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
 
 
 
-def fit_data(data, crit_angle,  yy, zz, debag, multiprocessing):
+def fit_data(data, crit_angle,  yy, zz, debug, multiprocessing):
 
     ## boxes preprocessing
     data.boxes = []
@@ -191,7 +191,7 @@ def fit_data(data, crit_angle,  yy, zz, debag, multiprocessing):
     for i in range(data.raw_giwaxs.shape[0]):
         fit_single_image(data.raw_giwaxs[i], data.ai[i], crit_angle, data.wavelength,
                          data.q_xy, data.q_z, data.boxes[i],
-                         yy, zz, data.clusters[i], debag, multiprocessing,
+                         yy, zz, data.clusters[i], debug, multiprocessing,
                          )
         img_container_list.append(_data2container(data.boxes[i], data.polar_shape, data.q_abs_max, data.ang_deg_max,
                                                   data.q_xy, data.q_z,
@@ -265,7 +265,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     return img_container
 
 
-def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]), debag = False, multiprocessing = True):
+def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]), debug = False, multiprocessing = True):
     data_loaded = DataLoader(filename, batch_size=batch_size)
     entry_list = data_loaded.entry_list
     entry_done = data_loaded.entry_done
@@ -275,20 +275,20 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
 
     if len(entry_list) != 0:
         for i in range(len(entry_list)):
-            if debag:
+            if debug:
                 print("Current entry", entry_list[i])
             while not entry_done:
                 data_loaded = DataLoader(filename=filename,
                                          entry_list=entry_list, entry_num=i, batch_num=batch_num,
                                          batch_size=batch_size,
-                                         debag = debag
+                                         debug = debug
                                          )
                 data = data_loaded.data
                 data.polar_shape = polar_shape
                 if yy is None or zz is None:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
                 data.ang_deg_max = ang_deg_max
-                img_container_list = fit_data(data, crit_angle, yy, zz, debag, multiprocessing)
+                img_container_list = fit_data(data, crit_angle, yy, zz, debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
                 entry_done = data_loaded.entry_done
                 batch_num = data_loaded.batch_num + 1

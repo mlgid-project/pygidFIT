@@ -148,7 +148,7 @@ def build_sum_gaussians_wrapper(n):
 #
 #     return model_func
 
-def fit_peak_cluster(cluster, boxes, img, debag=False):
+def fit_peak_cluster(cluster, boxes, img, debug=False):
     """Fit a cluster of 2D Gaussian peaks with a background plane over the bounding box."""
     # Extract ROI bounding box from the cluster
     time0 = time.time()
@@ -243,7 +243,7 @@ def fit_peak_cluster(cluster, boxes, img, debag=False):
     # Perform the fit
     try:
         result = model.fit(data, params=params, x=X_flat, y=Y_flat,) # max_nfev=100
-        if debag:
+        if debug:
             print("result.success", result.success)
             for name, par in result.params.items():
                 print(name, "value:", par.value, "vary:", par.vary, "stderr:", par.stderr)
@@ -254,7 +254,7 @@ def fit_peak_cluster(cluster, boxes, img, debag=False):
         print("X_flat, Y_flat",X_flat, Y_flat)
     time2 = time.time()
 
-    if debag:
+    if debug:
         plot_peak_cluster_debug(
             roi=roi,
             xmin=xmin,
@@ -455,7 +455,7 @@ def visualize_fit_3d(X, Y, Z_data, Z_fit):
 
 
 
-def fit_peak_on_ring_cluster(cluster, boxes, img, debag = False):
+def fit_peak_on_ring_cluster(cluster, boxes, img, debug = False):
     time0 = time.time()
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
     h, w = img.shape
@@ -572,7 +572,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, debag = False):
     result = model.fit(data, params=params, x=X_flat, y=Y_flat, )  # max_nfev=100
     time2 = time.time()
 
-    if debag:
+    if debug:
         plot_peak_on_ring_cluster_debug(
             X=X,
             Y=Y,
@@ -744,7 +744,7 @@ def plot_peak_on_ring_cluster_debug(X, Y, roi, X_flat, Y_flat, xmin, ymin,
     print(f"Preprocessing took {time_preproc * 1000:.2f} ms")
     print(f"Fitting took {time_fit * 1000:.2f} ms")
 
-def fit_ring_cluster(cluster, boxes, img, debag = False):
+def fit_ring_cluster(cluster, boxes, img, debug = False):
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
     h, w = img.shape
 
@@ -829,7 +829,7 @@ def fit_ring_cluster(cluster, boxes, img, debag = False):
         #     }
 
 
-    if debag:
+    if debug:
         plt.figure(figsize=(6, 4))
         plt.plot(x, profile, 'b', label='Data')
         plt.plot(x, result.best_fit, 'r-', label='Best Fit')
@@ -842,11 +842,11 @@ def fit_ring_cluster(cluster, boxes, img, debag = False):
         plt.show()
 
     if result.success:
-        if debag:
+        if debug:
             print("succeed")
         param_values = dict(result.best_values)
     else:
-        if debag:
+        if debug:
             print("failed")
         param_values = {name: result.init_params[name].value for name in result.init_params}
 
@@ -863,22 +863,22 @@ def fit_ring_cluster(cluster, boxes, img, debag = False):
 
 
 def process_cluster_args(args):
-    cluster, cluster_type, boxes, img, masked_img, debag = args
+    cluster, cluster_type, boxes, img, masked_img, debug = args
     if cluster_type == 'rings':
-        result = fit_ring_cluster(cluster, boxes, masked_img, debag)
+        result = fit_ring_cluster(cluster, boxes, masked_img, debug)
     elif cluster_type == 'peaks':
-        result = fit_peak_cluster(cluster, boxes, img, debag)
+        result = fit_peak_cluster(cluster, boxes, img, debug)
     elif cluster_type == 'both':
-        result = fit_peak_on_ring_cluster(cluster, boxes, img, debag)
+        result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
     else:
         result = None
     return cluster, result
 
-def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debag=False):
+def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=False):
     cluster_types = ['rings', 'peaks', 'both']
 
     for ctype in cluster_types:
-        ctype_clusters = [(cluster, ctype, boxes, img, masked_img, debag)
+        ctype_clusters = [(cluster, ctype, boxes, img, masked_img, debug)
                           for cluster in clusters if cluster.type == ctype]
         if not ctype_clusters:
             continue
@@ -887,5 +887,5 @@ def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debag=False):
             results = pool.map(process_cluster_args, ctype_clusters)
 
         for cluster, fitting_result in results:
-            make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debag)
+            make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             cluster.fitting_result = fitting_result
