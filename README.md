@@ -26,10 +26,12 @@ filename = r'..\tests\example.h5'
 # Run scans on the given file
 # crit_angle: critical angle for the material
 # multiprocessing: whether to use multiprocessing
+# use_pool: whether use pool of peaks
 pygidfit.run_scans(
     filename,
     crit_angle=0.1,
-    multiprocessing=False
+    multiprocessing=False,
+    use_pool = False,
 )
 ```
 
