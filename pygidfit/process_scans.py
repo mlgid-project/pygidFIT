@@ -312,7 +312,6 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 batch_num = data_loaded.batch_num + 1
             batch_num = 0
             entry_done = False
-            return
     else:
         raise ValueError("No entries found in the HDF5 file.")
 

@@ -623,6 +623,13 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         return None, None, None
     time1 = time.time()
 
+    for name, p in params.items():
+        if np.isnan(p.value):
+            if "amplitude" in name:
+                p.value = 1.0
+            else:
+                p.value = 0.0
+
     # Perform the fit
     result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares",)  # max_nfev=100
     time2 = time.time()
@@ -885,6 +892,13 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
 
     try:
         result = model.fit(profile, params, x=x, max_nfev=500, method="least_squares",) #, max_nfev=100
+        param_values = dict(result.best_values)
+        param_errors = {
+            name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
+            for name in result.params
+        }
+        success = result.success
+        message = result.message
         # for i in cluster.indices:
         #     boxes[i].fitted_params = {
         #         k: result.params[k].value for k in result.params
@@ -893,8 +907,10 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         #         k: result.params[k].stderr for k in result.params
         #     }
     except:
-        pass
-
+        param_values = {name: p.value for name, p in params.items()}
+        param_errors = {name: np.nan for name in params}
+        success = False
+        message = "Failed"
         # for i in cluster.indices:
         #     boxes[i].initial_guess = {
         #         k: params[k].value for k in params
@@ -913,19 +929,11 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         plt.tight_layout()
         plt.show()
 
-    if result.success:
-        param_values = dict(result.best_values)
-    else:
-        param_values = {name: result.init_params[name].value for name in result.init_params}
-
     return {
         'params': param_values,
-        'errors': {
-            name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-            for name in result.params
-        },
-        'success': result.success,
-        'message': result.message,
+        'errors': param_errors,
+        'success': success,
+        'message': message,
     }
 
 
