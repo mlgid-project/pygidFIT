@@ -10,6 +10,7 @@ def run_scans(
         batch_size = 10,
         crit_angle = 0,
         polar_shape = np.array([512,1024]),
+        use_pool = False,
         debug = False,
         multiprocessing = True,
     ):
@@ -28,6 +29,7 @@ def run_scans(
         batch_size,
         crit_angle,
         polar_shape,
+        use_pool,
         debug,
         multiprocessing
     )

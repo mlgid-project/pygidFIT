@@ -64,6 +64,9 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max):
                            theta1,
                            radius2,
                            theta2], axis=1)
+    x0c = (radius1+radius2)/2
+    y0c = (theta1+theta2)/2
+
     boxes_q_deg = np.stack([radius1_q,
                            theta1_deg,
                            radius2_q,
@@ -73,6 +76,12 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max):
         is_cut_qxy, is_cut_qz = _get_cut_flags(radius1_q[i],theta1_deg[i],radius2_q[i],theta2_deg[i],wavelength)
         boxes_list.append(Boxes(boxes[i], find_box_type(is_cut_qxy, is_cut_qz, boxes[i]), i,is_cut_qxy, is_cut_qz ))
         boxes_list[i].boxes_q_deg = boxes_q_deg[i]
+        boxes_list[i].x0c = x0c[i]
+        boxes_list[i].y0c = y0c[i]
+
+
+
+
     return boxes_list
 
 def _get_cut_flags(radius1, theta1_deg, radius2, theta2_deg, wavelength):

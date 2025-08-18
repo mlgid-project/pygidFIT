@@ -77,16 +77,67 @@ def polar_conversion(img: np.ndarray, yy: np.ndarray, zz: np.ndarray, algorithm:
                         borderValue=np.nan)
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+from matplotlib.patches import Rectangle
 
 
-def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, debug = False,
+def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
+    """
+    Display images with boxes and print example data if debug is True.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Original image.
+    masked_img : np.ndarray
+        Masked version of the image.
+    boxes : list
+        List of box objects with a 'limits' attribute (xmin, ymin, xmax, ymax).
+    clusters : list
+        List of cluster objects.
+    debug : bool
+        If True, display plots and print examples.
+    """
+    if not debug:
+        return
+
+    # Show original image with boxes
+    fig, axes = plt.subplots(figsize=(6, 6))
+    norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
+    axes.imshow(img, cmap='viridis', origin='lower', norm=norm)
+
+    for box in boxes:
+        xmin, ymin, xmax, ymax = map(int, box.limits)
+        width = xmax - xmin
+        height = ymax - ymin
+        rect = Rectangle(
+            (xmin, ymin), width, height,
+            linewidth=1.5, edgecolor='red', facecolor='none'
+        )
+        axes.add_patch(rect)
+
+    plt.show()
+
+    # Show masked image
+    fig, axes = plt.subplots(figsize=(6, 6))
+    norm = LogNorm(vmin=np.nanmin(masked_img[masked_img > 0]), vmax=np.nanmax(masked_img))
+    axes.imshow(masked_img, cmap='viridis', origin='lower', norm=norm)
+    axes.set_title('masked image')
+    plt.show()
+
+    # Print example data
+    print("box example: ", boxes[0], "cluster example: ", clusters[0])
+
+
+def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, peaks_pool = None, debug = False,
                      multiprocessing = True):
     img = img_preprocessing(img, ai, crit_angle, wavelength, q_z)
     if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
         axes.imshow(img, extent=[q_xy.min(), q_xy.max(), q_z.min(), q_z.max()], cmap='viridis', origin='lower', norm=norm)
-
         for box in boxes:
             r_min, th1, r_max, th2 = map(float, box.boxes_q_deg)
             r = (r_min+r_max)/2
@@ -99,48 +150,16 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     img = polar_conversion(img, yy, zz, cv2.INTER_LINEAR) ## polar image
 
     mask = np.zeros_like(img, dtype=bool)
-    # for box in boxes:
-    #     if not box.is_ring:
-    #         xmin, ymin, xmax, ymax = map(int, box.limits)
-    #         mask[ymin:ymax, xmin:xmax] = True
+
     for cluster in clusters:
         if cluster.type == 'peaks' or cluster.type == 'both':
             xmin, ymin, xmax, ymax = map(int, cluster.bbox)
             mask[ymin:ymax, xmin:xmax] = True
 
-    # for cluster in clusters:
-    #     for box, is_ring in zip(cluster.boxes, cluster.is_ring_list):
-    #         if not is_ring:
-    #             xmin, ymin, xmax, ymax = map(int, box)
-    #             mask[ymin:ymax, xmin:xmax] = True
-
-    # masked_img = np.where(mask, img, np.nan)
     masked_img = np.where(~mask, img, np.nan)
 
-    if debug:
-        fig, axes = plt.subplots(figsize=(6, 6))
+    show_masked_images_debug(img, masked_img, boxes, clusters, debug=debug)
 
-        norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
-        axes.imshow(img, cmap='viridis', origin='lower', norm=norm)
-        for box in boxes:
-            xmin, ymin, xmax, ymax = map(int, box.limits)
-            width = xmax - xmin
-            height = ymax - ymin
-            rect = Rectangle(
-                (xmin, ymin), width, height,
-                linewidth=1.5, edgecolor='red', facecolor='none'
-            )
-            axes.add_patch(rect)
-        plt.show()
-
-        fig, axes = plt.subplots(figsize=(6, 6))
-        norm = LogNorm(vmin=np.nanmin(masked_img[masked_img > 0]), vmax=np.nanmax(masked_img))
-        axes.imshow(masked_img, cmap='viridis', origin='lower', norm=norm)
-        axes.title.set_text('masked image')
-        plt.show()
-
-        print("box example: ", boxes[0], "cluster example: ", clusters[0])
-        # print("box example: ", boxes, "cluster example: ", clusters)
     time0 = time.time()
 
     if multiprocessing:
@@ -148,32 +167,28 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     else:
         for cluster in clusters:
             if cluster.type == 'rings':
-                fitting_result = fit_ring_cluster(cluster, boxes, masked_img, debug)
+                fitting_result = fit_ring_cluster(cluster, boxes, masked_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             elif cluster.type == 'peaks':
-                fitting_result = fit_peak_cluster(cluster, boxes, img, debug)
+                fitting_result = fit_peak_cluster(cluster, boxes, img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
         for cluster in clusters:
             if cluster.type == 'both':
-                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
+                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
 
-            # elif cluster.type == 'both':
-            #     cluster.fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
+
+    if peaks_pool is not None:
+        peaks_pool = boxes
+
+
     time1 = time.time()
     print(f"image fitting took {(time1 - time0) * 1000} ms")
+    return peaks_pool
 
 
 
-    # for i in range(len(clusters)):
-    #     cluster = clusters[i]
-    #     fit_cluster(cluster)
-
-
-
-
-
-def fit_data(data, crit_angle,  yy, zz, debug, multiprocessing):
+def fit_data(data, crit_angle,  yy, zz, peaks_pool, debug, multiprocessing):
 
     ## boxes preprocessing
     data.boxes = []
@@ -189,15 +204,15 @@ def fit_data(data, crit_angle,  yy, zz, debug, multiprocessing):
     ## image fitting
     img_container_list = []
     for i in range(data.raw_giwaxs.shape[0]):
-        fit_single_image(data.raw_giwaxs[i], data.ai[i], crit_angle, data.wavelength,
+        peaks_poll = fit_single_image(data.raw_giwaxs[i], data.ai[i], crit_angle, data.wavelength,
                          data.q_xy, data.q_z, data.boxes[i],
-                         yy, zz, data.clusters[i], debug, multiprocessing,
+                         yy, zz, data.clusters[i], peaks_pool, debug, multiprocessing,
                          )
         img_container_list.append(_data2container(data.boxes[i], data.polar_shape, data.q_abs_max, data.ang_deg_max,
                                                   data.q_xy, data.q_z,
                                                   np.array(data.detected_peaks[i].visibility),
                                                   np.array(data.detected_peaks[i].score)))
-    return img_container_list
+    return img_container_list, peaks_poll
 
 
 def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg):
@@ -265,13 +280,16 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     return img_container
 
 
-def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]), debug = False, multiprocessing = True):
+def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
+                           use_poll = False, debug = False, multiprocessing = True):
     data_loaded = DataLoader(filename, batch_size=batch_size)
     entry_list = data_loaded.entry_list
     entry_done = data_loaded.entry_done
     batch_num = data_loaded.batch_num
 
     yy, zz, ang_deg_max = None, None, None
+
+    peaks_poll = [] if use_poll else None
 
     if len(entry_list) != 0:
         for i in range(len(entry_list)):
@@ -288,7 +306,7 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 if yy is None or zz is None:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
                 data.ang_deg_max = ang_deg_max
-                img_container_list = fit_data(data, crit_angle, yy, zz, debug, multiprocessing)
+                img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll, debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
                 entry_done = data_loaded.entry_done
                 batch_num = data_loaded.batch_num + 1
