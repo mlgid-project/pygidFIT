@@ -826,12 +826,24 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
 
     # Estimate linear background
     mid = len(profile) // 2
-    ind0 = np.nanargmin(profile[:mid])
-    ind1 = np.nanargmin(profile[mid:]) + mid
+
+    left = profile[:mid]
+    right = profile[mid:]
+
+    if np.all(np.isnan(left)) or np.all(np.isnan(right)):
+        ind0 = 0
+        ind1 = len(profile) - 1
+    else:
+        ind0 = np.nanargmin(left)
+        ind1 = np.nanargmin(right) + mid
+
     x0_lin, x1_lin = x[ind0], x[ind1]
     y0_lin, y1_lin = profile[ind0], profile[ind1]
     slope_guess = (y1_lin - y0_lin) / (x1_lin - x0_lin)
     intercept_guess = y0_lin - slope_guess * x0_lin
+    if np.isnan(slope_guess) or np.isnan(intercept_guess):
+        slope_guess = 0.0
+        intercept_guess = 0.0
     background = slope_guess * x + intercept_guess
     profile_corrected = profile - background
 
