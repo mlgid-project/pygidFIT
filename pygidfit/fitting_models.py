@@ -608,7 +608,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
 
     for j, idx in enumerate(ring_indices):
         box = boxes[idx]
-
         center = box.fitting_result['radius']
         sigma = box.fitting_result['radius_width']
         amp = box.fitting_result['amplitude']
