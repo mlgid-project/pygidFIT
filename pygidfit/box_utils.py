@@ -12,7 +12,7 @@ class Boxes:
     fitting_result = None
 
 
-def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 10) -> bool:
+def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 50) -> bool:
     """
     Classifies a bounding box as either a 'line' or a 'peak' based on its aspect ratio.
 
