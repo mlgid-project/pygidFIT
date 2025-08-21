@@ -169,6 +169,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
     time0 = time.time()
 
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
+
     h, w = img.shape
     xmin = np.clip(xmin, 0, w)
     xmax = np.clip(xmax, 0, w)
@@ -219,6 +220,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
         y1 = int(np.clip(np.round(box.limits[3]) , ymin, ymax))
 
 
+
         sub = roi_corrected[y0- ymin:y1- ymin, x0- xmin:x1- xmin]
 
         # Skip empty or invalid boxes
@@ -260,7 +262,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
         if debug:
             print("amp, xo, yo, sigma_x, sigma_y ", amp, xo, yo, sigma_x, sigma_y )
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
-        x_bound_max = np.clip(x1 + (x1 - x0)/2 + xmax, xmin, xmax)
+        x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
         y_bound_min = np.clip(y0 - (y1 - y0)/2 , ymin, ymax)
         y_bound_max = np.clip(y1 + (y1 - y0) / 2 , ymin, ymax) if not box.is_cut_qz else h
 
@@ -275,7 +277,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
     # Add parameters for the background plane
     params.add('A', value=a_bkg, min = -1, max = 1)
     params.add('B', value=b_bkg, min = -1, max = 1)
-    params.add('C', value=c_bkg, min = -abs(c_bkg/4), max = abs(c_bkg*2))
+    params.add('C', value=c_bkg, min = -abs(c_bkg/4)-1, max = abs(c_bkg*2)+1)
 
     # Exit if no valid peaks
     if len(params) == 0:
@@ -285,6 +287,15 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
     # Perform the fit
     try:
         result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares") # max_nfev=100
+        list_to_return = {
+            'params': dict(result.best_values),
+            'errors': {
+                name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
+                for name in result.params
+            },
+            'success': result.success,
+            'message': result.message,
+        }
         # if debug:
         #     print("result.success", result.success)
         #     for name, par in result.params.items():
@@ -292,8 +303,15 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
 
     except:
         print("Failed")
-        print("params", params)
-        print("X_flat, Y_flat",X_flat, Y_flat)
+        param_values = {name: p.value for name, p in params.items()}
+        param_errors = {name: np.nan for name in params}
+        result = None
+        list_to_return = {
+            'params': param_values,
+            'errors': param_errors,
+            'success': False,
+            'message': 'fit failed'
+        }
     time2 = time.time()
 
     if debug:
@@ -309,15 +327,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
             time_fit=(time2 - time1)
         )
 
-    list_to_return = {
-        'params': dict(result.best_values),
-        'errors': {
-            name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-            for name in result.params
-        },
-        'success': result.success,
-        'message': result.message,
-    }
+
 
     # for i in range(len(cluster.indices)):
     #     list_to_return['params'][f'g{i}_radius'] +=xmin
@@ -585,9 +595,9 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         # y_bound_max = np.clip(y1 + (y1 - y0) / 2 + ymin, 0, h) - ymin if not box.is_cut_qz else h - ymin
 
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
-        x_bound_max = np.clip(x1 + (x1 - x0)/2 + xmax, xmin, xmax)
+        x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
         y_bound_min = np.clip(y0 - (y1 - y0)/2 , ymin, ymax)
-        y_bound_max = np.clip(y1 + (y1 - y0) / 2 , ymin, ymax) if not box.is_cut_qz else h
+        y_bound_max = np.clip(y1 + (y1 - y0)/2 , ymin, ymax) if not box.is_cut_qz else h
 
         # Add Gaussian parameters to the model
         params.add(f'g{i}_amplitude', value=amp, min=0)
@@ -598,13 +608,13 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         params.add(f'g{i}_theta', value=0, vary=False)
 
     # Add parameters for the background plane
-    params.add('A', value=a,)
-    params.add('B', value=b,)
-    params.add('C', value=c)
+    # params.add('A', value=a,)
+    # params.add('B', value=b,)
+    # params.add('C', value=c)
 
     params.add('A', value=a, min = -1, max = 1)
     params.add('B', value=b, min = -1, max = 1)
-    params.add('C', value=c, min = -abs(c/4), max = abs(c*2))
+    params.add('C', value=c, min = -abs(c/4)-1, max = abs(c*2)+1)
 
     for j, idx in enumerate(ring_indices):
         box = boxes[idx]

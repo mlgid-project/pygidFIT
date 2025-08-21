@@ -29,21 +29,22 @@ pygid_results_dtype = np.dtype([
 
 @dataclass
 class DetectedPeaks:
-    analysis: h5py.Group
-    frame_num: int
+    analysis: h5py.Group = None
+    frame_num: int = None
     frame_key: str = field(init=False)
     data: dict = field(init=False, default_factory=dict)
 
     def __post_init__(self):
-        self.frame_key = list(self.analysis.keys())[self.frame_num]
-        frame_group = self.analysis[self.frame_key]
-        if "detected_peaks" in frame_group:
-            ds = frame_group["detected_peaks"]
-            names = ds.dtype.names
-            self.data = {name: ds[name] for name in names}
-            self.__dict__.update(self.data)
-        else:
-            raise ValueError("No detected peaks found")
+        if self.analysis is not None:
+            self.frame_key = list(self.analysis.keys())[self.frame_num]
+            frame_group = self.analysis[self.frame_key]
+            if "detected_peaks" in frame_group:
+                ds = frame_group["detected_peaks"]
+                names = ds.dtype.names
+                self.data = {name: ds[name] for name in names}
+                self.__dict__.update(self.data)
+            else:
+                raise ValueError("No detected peaks found")
         # for key in frame_group['detected_peaks'].keys():
         #     self.data[key] = frame_group[f'detected_peaks/{key}'][()]
         # self.__dict__.update(self.data)
