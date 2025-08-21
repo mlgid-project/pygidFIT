@@ -138,6 +138,10 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     if polar_img is None:
         img = img_preprocessing(img, ai, crit_angle, wavelength, q_z)
         polar_img = polar_conversion(img, yy, zz, cv2.INTER_LINEAR)
+        # import fabio
+        # edf_file = fabio.edfimage.EdfImage(data=polar_img.astype(np.float32))
+        # edf_file.write(r"D:\PhD\mlgid\pygidFIT\polar_image.edf")
+
 
     if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
@@ -168,18 +172,18 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     time0 = time.time()
 
     if multiprocessing:
-        fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=debug)
+        fit_clusters_multiprocessing(clusters, boxes, polar_img, masked_img, debug=debug)
     else:
         for cluster in clusters:
             if cluster.type == 'rings':
                 fitting_result = fit_ring_cluster(cluster, boxes, masked_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             elif cluster.type == 'peaks':
-                fitting_result = fit_peak_cluster(cluster, boxes, img, peaks_pool, debug)
+                fitting_result = fit_peak_cluster(cluster, boxes, polar_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
         for cluster in clusters:
             if cluster.type == 'both':
-                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug)
+                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, polar_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
 
 

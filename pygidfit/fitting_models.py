@@ -163,7 +163,7 @@ def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     return amp, xo, yo, sigma_x, sigma_y
 
 
-def fit_peak_cluster(cluster, boxes, img, peaks_pool, debug=False):
+def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
     """Fit a cluster of 2D Gaussian peaks with a background plane over the bounding box."""
     # Extract ROI bounding box from the cluster
     time0 = time.time()
@@ -951,11 +951,11 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
 def process_cluster_args(args):
     cluster, cluster_type, boxes, img, masked_img, debug = args
     if cluster_type == 'rings':
-        result = fit_ring_cluster(cluster, boxes, masked_img, debug)
+        result = fit_ring_cluster(cluster, boxes, masked_img, None, debug)
     elif cluster_type == 'peaks':
-        result = fit_peak_cluster(cluster, boxes, img, debug)
+        result = fit_peak_cluster(cluster, boxes, img, None, debug)
     elif cluster_type == 'both':
-        result = fit_peak_on_ring_cluster(cluster, boxes, img, debug)
+        result = fit_peak_on_ring_cluster(cluster, boxes, img, None, debug)
     else:
         result = None
     return cluster, result
