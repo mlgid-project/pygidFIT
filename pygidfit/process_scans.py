@@ -314,6 +314,39 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 data.polar_shape = polar_shape
                 if yy is None or zz is None:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
+                    # height, width = data.raw_giwaxs.shape[1:]
+                    # top = np.column_stack((np.zeros(height), np.arange(height)))
+                    # right = np.column_stack((np.arange(width), np.full(width, height - 1)))
+                    # bottom = np.column_stack((np.full(height, width - 1), np.arange(height - 1, -1, -1)))
+                    # left = np.column_stack((np.arange(width - 1, -1, -1), np.zeros(width)))
+                    # frame_points = np.vstack([top, right, bottom, left])
+                    # frame_y = frame_points[:, 1]  # old image rows
+                    # frame_x = frame_points[:, 0]  # old image columns
+                    # tolerance = 1.0
+                    # # Flatten yy and zz
+                    # yy_flat = yy.ravel()  # shape (N_pixels,)
+                    # zz_flat = zz.ravel()
+                    # indices = np.arange(yy_flat.size)
+                    #
+                    # # Compute distance squared to all frame points at once
+                    # # (yy_flat[:, None] - frame_y[None, :])**2 + (zz_flat[:, None] - frame_x[None, :])**2 <= tolerance**2
+                    # mask_flat = np.any(
+                    #     (np.abs(yy_flat[:, None] - frame_y[None, :]) <= tolerance) &
+                    #     (np.abs(zz_flat[:, None] - frame_x[None, :]) <= tolerance),
+                    #     axis=1
+                    # )
+                    #
+                    # # Convert back to 2D coordinates
+                    # new_y, new_x = np.unravel_index(indices[mask_flat], yy.shape)
+                    #
+                    # plt.figure(figsize=(8, 8))
+                    # plt.scatter(new_x, new_y, s=1, c='b')
+                    # plt.gca().invert_yaxis()
+                    # plt.axis('equal')
+                    # plt.title("Mapped frame of the original image (fast)")
+                    # plt.show()
+
+
                 data.ang_deg_max = ang_deg_max
                 img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll, debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
