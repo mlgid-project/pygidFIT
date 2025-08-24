@@ -2,7 +2,8 @@ import time
 from pathlib import Path
 import numpy as np
 
-from pygidfit.process_scans import process_data_from_file
+from pygidfit.process_scans import process_data_from_file, process_data_img_container
+
 
 
 def run_scans(
@@ -35,6 +36,33 @@ def run_scans(
     )
 
 
+def run_scans_img_container(
+        img_container=None,
+        batch_size=10,
+        crit_angle=0,
+        polar_shape=np.array([512, 1024]),
+        use_pool=False,
+        debug=False,
+        multiprocessing=False,
+):
+    """
+    Main function to process a range of scans.
+
+    Args:
+        filename: Name of the file
+        scan_range: Range of scan numbers to process (start, end)
+        box_shape: Shape of the box (width, height)
+        n_jobs: Number of parallel jobs to use (-1 for all cores)
+    """
+
+    return process_data_img_container(
+        img_container,
+        crit_angle,
+        polar_shape,
+        use_pool,
+        debug,
+        multiprocessing
+    )
 
 # filename = 'S124_FAI_A1_after_gui_copy_with_duplicate.h5'
 if __name__ == "__main__":

@@ -22,7 +22,9 @@ from pygidfit.box_utils import (
 
 from pygidfit.io_utils import (
     DataLoader,
-    DataSaver
+    DataSaver,
+    DetectedPeaks,
+    DataBatch
 )
 
 from pygidfit.imgcontainer import ImageContainer
@@ -132,8 +134,15 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
 
 
 def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, peaks_pool = None, debug = False,
-                     multiprocessing = True):
-    img = img_preprocessing(img, ai, crit_angle, wavelength, q_z)
+                     multiprocessing = False, polar_img = None):
+    if polar_img is None:
+        img = img_preprocessing(img, ai, crit_angle, wavelength, q_z)
+        polar_img = polar_conversion(img, yy, zz, cv2.INTER_LINEAR)
+        # import fabio
+        # edf_file = fabio.edfimage.EdfImage(data=polar_img.astype(np.float32))
+        # edf_file.write(r"D:\PhD\mlgid\pygidFIT\polar_image.edf")
+
+
     if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
@@ -147,34 +156,34 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
             axes.add_patch(arc)
         plt.show()
 
-    img = polar_conversion(img, yy, zz, cv2.INTER_LINEAR) ## polar image
+    ## polar image
 
-    mask = np.zeros_like(img, dtype=bool)
+    mask = np.zeros_like(polar_img, dtype=bool)
 
     for cluster in clusters:
         if cluster.type == 'peaks' or cluster.type == 'both':
             xmin, ymin, xmax, ymax = map(int, cluster.bbox)
             mask[ymin:ymax, xmin:xmax] = True
 
-    masked_img = np.where(~mask, img, np.nan)
+    masked_img = np.where(~mask, polar_img, np.nan)
 
-    show_masked_images_debug(img, masked_img, boxes, clusters, debug=debug)
+    show_masked_images_debug(polar_img, masked_img, boxes, clusters, debug=debug)
 
     time0 = time.time()
 
     if multiprocessing:
-        fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=debug)
+        fit_clusters_multiprocessing(clusters, boxes, polar_img, masked_img, debug=debug)
     else:
         for cluster in clusters:
             if cluster.type == 'rings':
                 fitting_result = fit_ring_cluster(cluster, boxes, masked_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             elif cluster.type == 'peaks':
-                fitting_result = fit_peak_cluster(cluster, boxes, img, peaks_pool, debug)
+                fitting_result = fit_peak_cluster(cluster, boxes, polar_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
         for cluster in clusters:
             if cluster.type == 'both':
-                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug)
+                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, polar_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
 
 
@@ -281,7 +290,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
 
 
 def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
-                           use_poll = False, debug = False, multiprocessing = True):
+                           use_poll = False, debug = False, multiprocessing = False):
     data_loaded = DataLoader(filename, batch_size=batch_size)
     entry_list = data_loaded.entry_list
     entry_done = data_loaded.entry_done
@@ -305,6 +314,39 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 data.polar_shape = polar_shape
                 if yy is None or zz is None:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
+                    # height, width = data.raw_giwaxs.shape[1:]
+                    # top = np.column_stack((np.zeros(height), np.arange(height)))
+                    # right = np.column_stack((np.arange(width), np.full(width, height - 1)))
+                    # bottom = np.column_stack((np.full(height, width - 1), np.arange(height - 1, -1, -1)))
+                    # left = np.column_stack((np.arange(width - 1, -1, -1), np.zeros(width)))
+                    # frame_points = np.vstack([top, right, bottom, left])
+                    # frame_y = frame_points[:, 1]  # old image rows
+                    # frame_x = frame_points[:, 0]  # old image columns
+                    # tolerance = 1.0
+                    # # Flatten yy and zz
+                    # yy_flat = yy.ravel()  # shape (N_pixels,)
+                    # zz_flat = zz.ravel()
+                    # indices = np.arange(yy_flat.size)
+                    #
+                    # # Compute distance squared to all frame points at once
+                    # # (yy_flat[:, None] - frame_y[None, :])**2 + (zz_flat[:, None] - frame_x[None, :])**2 <= tolerance**2
+                    # mask_flat = np.any(
+                    #     (np.abs(yy_flat[:, None] - frame_y[None, :]) <= tolerance) &
+                    #     (np.abs(zz_flat[:, None] - frame_x[None, :]) <= tolerance),
+                    #     axis=1
+                    # )
+                    #
+                    # # Convert back to 2D coordinates
+                    # new_y, new_x = np.unravel_index(indices[mask_flat], yy.shape)
+                    #
+                    # plt.figure(figsize=(8, 8))
+                    # plt.scatter(new_x, new_y, s=1, c='b')
+                    # plt.gca().invert_yaxis()
+                    # plt.axis('equal')
+                    # plt.title("Mapped frame of the original image (fast)")
+                    # plt.show()
+
+
                 data.ang_deg_max = ang_deg_max
                 img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll, debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
@@ -315,3 +357,48 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
     else:
         raise ValueError("No entries found in the HDF5 file.")
 
+
+
+
+def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.array([512,1024]),
+                           use_poll = False, debug = False, multiprocessing = False):
+    detected_peaks = DetectedPeaks()
+    data = DataBatch()
+    detected_peaks.radius = img_container.radius
+    detected_peaks.radius_width = np.abs(img_container.radius_width)
+    detected_peaks.angle = img_container.angle
+    detected_peaks.angle_width = np.abs(img_container.angle_width)
+    detected_peaks.score = img_container.scores
+    data.raw_reciprocal = img_container.raw_reciprocal
+    data.converted_polar_image = img_container.converted_polar_image[0][0]
+    data.polar_shape = img_container.converted_polar_image.shape[-2:]
+    data.ai = img_container.ai
+    data.wavelength = img_container.wavelength
+    data.q_abs_max = np.sqrt(img_container.q_xy**2 + img_container.q_z**2)
+    data.ang_deg_max = 0
+    data.q_xy = np.linspace(0, img_container.q_xy, img_container.raw_reciprocal.shape[1])
+    data.q_z = np.linspace(0, img_container.q_z, img_container.raw_reciprocal.shape[0])
+
+    data.boxes = boxes_preprocessing(detected_peaks,
+                                              data.polar_shape, data.wavelength,
+                                              data.q_abs_max)
+    data.clusters = cluster_boxes_by_centers(data.boxes)
+    peaks_pool = None
+    yy, zz = None, None
+
+
+    peaks_poll = fit_single_image(data.raw_reciprocal, data.ai, crit_angle, data.wavelength,
+                                  data.q_xy, data.q_z, data.boxes,
+                                  yy, zz, data.clusters, peaks_pool, debug, multiprocessing,
+                                  data.converted_polar_image
+                                  )
+    img_container = _data2container(data.boxes, data.polar_shape, data.q_abs_max, data.ang_deg_max,
+                                                  data.q_xy, data.q_z,
+                                                  np.array([0]*len(detected_peaks.score)),
+                                                  np.array(detected_peaks.score))
+
+    return img_container
+
+
+
+    pass

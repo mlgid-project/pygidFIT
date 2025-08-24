@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Tuple
 import numpy as np
 
+
 DEFAULT_POLAR_SHAPE: Tuple[int, int] = (512, 512)
 
 @dataclass
