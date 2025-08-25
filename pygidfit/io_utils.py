@@ -19,7 +19,7 @@ pygid_results_dtype = np.dtype([
         ('score', 'f4'),
         ('A', 'f4'),
         ('B', 'f4'),
-        ('C', 'i4'),
+        ('C', 'f4'),
         ('is_ring', 'bool'),
         ('is_cut_qz', 'bool'),
         ('is_cut_qxy', 'bool'),
@@ -164,7 +164,7 @@ class DataLoader:
             self.data.frame_num = frame_nums
             self.data.detected_peaks = self.load_detected_peaks(analysis, frame_nums)
             self.data.raw_giwaxs = self.load_image(f, entry, ind1, ind2)
-            self.data.rad_max_px = np.sqrt(self.data.raw_giwaxs.shape[1]**2 + self.data.raw_giwaxs.shape[2]**2) ## boxes in pixels
+            self.data.rad_max_px = np.sqrt(self.data.raw_giwaxs.shape[1]**2 + self.data.raw_giwaxs.shape[2]**2)
 
             ai, wavelength, q_xy, q_z = self.load_metadata(f, entry, ind1, ind2)
             self.data.ai = ai

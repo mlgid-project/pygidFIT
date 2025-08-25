@@ -39,7 +39,8 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 50) -> bool:
 
 
 
-def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max):
+def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
+                        ratio_threshold):
 
     radius1_q = detected_peaks.radius - (detected_peaks.radius_width / 2)
     radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 2)
@@ -74,7 +75,7 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max):
     boxes_list = []
     for i in range(len(radius1)):
         is_cut_qxy, is_cut_qz = _get_cut_flags(radius1_q[i],theta1_deg[i],radius2_q[i],theta2_deg[i],wavelength)
-        boxes_list.append(Boxes(boxes[i], find_box_type(is_cut_qxy, is_cut_qz, boxes[i]), i,is_cut_qxy, is_cut_qz ))
+        boxes_list.append(Boxes(boxes[i], find_box_type(is_cut_qxy, is_cut_qz, boxes[i], ratio_threshold), i,is_cut_qxy, is_cut_qz ))
         boxes_list[i].boxes_q_deg = boxes_q_deg[i]
         boxes_list[i].x0c = x0c[i]
         boxes_list[i].y0c = y0c[i]

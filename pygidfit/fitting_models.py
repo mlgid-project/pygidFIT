@@ -275,7 +275,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
         params.add(f'g{i}_theta', value=0, vary=False)
 
     # Add parameters for the background plane
-    params.add('A', value=a_bkg, min = -1, max = 1)
+    params.add('A', value=a_bkg, min = -0.1, max = 0.1)
     params.add('B', value=b_bkg, min = -1, max = 1)
     params.add('C', value=c_bkg, min = -abs(c_bkg/4)-1, max = abs(c_bkg*2)+1)
 
@@ -360,7 +360,7 @@ def plot_peak_cluster_debug(roi, xmin, ymin, cluster, boxes, params, result, tim
     fig, axes = plt.subplots(figsize=(6, 6))
     norm = LogNorm(vmin=np.nanmin(roi[roi > 0]), vmax=np.nanmax(roi))
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
-    axes.imshow(roi, cmap='viridis', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
+    axes.imshow(roi, cmap='inferno', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
 
     # Draw boxes
     for i in cluster.indices:
@@ -496,7 +496,7 @@ def visualize_fit_3d(X, Y, Z_data, Z_fit):
     fig = plt.figure(figsize=(10, 6))
     ax = fig.add_subplot(111, projection='3d')
 
-    ax.plot_surface(X, Y, Z_data, cmap='viridis', alpha=0.5, rstride=1, cstride=1, edgecolor='none')
+    ax.plot_surface(X, Y, Z_data, cmap='inferno', alpha=0.5, rstride=1, cstride=1, edgecolor='none')
     ax.plot_surface(X, Y, Z_fit, cmap='inferno', alpha=0.5, rstride=1, cstride=1, edgecolor='none')
 
     ax.set_xlabel('X')
@@ -612,7 +612,8 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
     # params.add('B', value=b,)
     # params.add('C', value=c)
 
-    params.add('A', value=a, min = -1, max = 1)
+    # params.add('A', value=a, min = -1, max = 1)
+    params.add('A', value=a, min=-0.1, max=0.1)
     params.add('B', value=b, min = -1, max = 1)
     params.add('C', value=c, min = -abs(c/4)-1, max = abs(c*2)+1)
 
@@ -729,7 +730,7 @@ def plot_peak_on_ring_cluster_debug(X, Y, roi, X_flat, Y_flat, xmin, ymin,
     fig, axes = plt.subplots(figsize=(6, 6))
     norm = LogNorm(vmin=np.nanmin(roi[roi > 0]), vmax=np.nanmax(roi))
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
-    axes.imshow(roi, cmap='viridis', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
+    axes.imshow(roi, cmap='inferno', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
 
     # Peak bounding boxes
     for i in peak_indices:

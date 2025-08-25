@@ -4,7 +4,9 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.patches import Rectangle, Arc
-
+import logging
+for lib in ["matplotlib" , "numba", "h5py"]:
+    logging.getLogger(lib).setLevel(logging.WARNING)
 import time
 
 
@@ -108,7 +110,7 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
     # Show original image with boxes
     fig, axes = plt.subplots(figsize=(6, 6))
     norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
-    axes.imshow(img, cmap='viridis', origin='lower', norm=norm)
+    axes.imshow(img, cmap='inferno', origin='lower', norm=norm)
 
     for box in boxes:
         xmin, ymin, xmax, ymax = map(int, box.limits)
@@ -125,7 +127,7 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
     # Show masked image
     fig, axes = plt.subplots(figsize=(6, 6))
     norm = LogNorm(vmin=np.nanmin(masked_img[masked_img > 0]), vmax=np.nanmax(masked_img))
-    axes.imshow(masked_img, cmap='viridis', origin='lower', norm=norm)
+    axes.imshow(masked_img, cmap='inferno', origin='lower', norm=norm)
     axes.set_title('masked image')
     plt.show()
 
@@ -146,7 +148,7 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
-        axes.imshow(img, extent=[q_xy.min(), q_xy.max(), q_z.min(), q_z.max()], cmap='viridis', origin='lower', norm=norm)
+        axes.imshow(img, extent=[q_xy.min(), q_xy.max(), q_z.min(), q_z.max()], cmap='inferno', origin='lower', norm=norm)
         for box in boxes:
             r_min, th1, r_max, th2 = map(float, box.boxes_q_deg)
             r = (r_min+r_max)/2
@@ -192,24 +194,26 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
 
 
     time1 = time.time()
-    print(f"image fitting took {(time1 - time0) * 1000} ms")
+    if debug:
+        print(f"image fitting took {(time1 - time0) * 1000} ms")
     return peaks_pool
 
 
 
-def fit_data(data, crit_angle,  yy, zz, peaks_pool, debug, multiprocessing):
+def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
+        clustering_distance,  clustering_extend, debug, multiprocessing):
 
     ## boxes preprocessing
     data.boxes = []
     for i in range(len(data.detected_peaks)):
         data.boxes.append(boxes_preprocessing(data.detected_peaks[i],
                                               data.polar_shape, data.wavelength,
-                                              data.q_abs_max))
+                                              data.q_abs_max, ratio_threshold))
 
     ## boxes clustering
     data.clusters = []
     for i in range(data.raw_giwaxs.shape[0]):
-        data.clusters.append(cluster_boxes_by_centers(data.boxes[i]))
+        data.clusters.append(cluster_boxes_by_centers(data.boxes[i], clustering_distance, clustering_extend))
     ## image fitting
     img_container_list = []
     for i in range(data.raw_giwaxs.shape[0]):
@@ -220,7 +224,7 @@ def fit_data(data, crit_angle,  yy, zz, peaks_pool, debug, multiprocessing):
         img_container_list.append(_data2container(data.boxes[i], data.polar_shape, data.q_abs_max, data.ang_deg_max,
                                                   data.q_xy, data.q_z,
                                                   np.array(data.detected_peaks[i].visibility),
-                                                  np.array(data.detected_peaks[i].score)))
+                                                  np.array(data.detected_peaks[i].score), data.wavelength))
     return img_container_list, peaks_poll
 
 
@@ -248,7 +252,7 @@ def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg):
 
     return q_array, sigma_array
 
-def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visibility, score):
+def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visibility, score, wavelength):
 
     img_container = ImageContainer()
     img_container.amplitude = np.array([box.fitting_result['amplitude'] for box in boxes])
@@ -256,10 +260,33 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     img_container.B = np.array([box.fitting_result['B'] for box in boxes]) * polar_shape[0] / ang_deg_max
     img_container.C = np.array([box.fitting_result['C'] for box in boxes])
     img_container.theta = np.array([box.fitting_result['theta'] for box in boxes])
-    img_container.radius = np.array([box.fitting_result['radius'] for box in boxes])/polar_shape[1]*q_abs_max
-    img_container.radius_width = np.array([box.fitting_result['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max
+
+    radius_arr = np.array([box.fitting_result['radius'] for box in boxes])/polar_shape[1]*q_abs_max
     angle_arr = np.array([box.fitting_result['angle'] for box in boxes]) / polar_shape[0] * ang_deg_max
-    img_container.angle = np.nan_to_num(angle_arr, nan=45)
+    angle_arr = np.nan_to_num(angle_arr, nan=45)
+
+
+    def adjust_missing_wedge(wavelength, q_abs, phi):
+        k = 2 * np.pi / float(wavelength)
+
+        q_abs = np.asarray(q_abs)
+        phi = np.asarray(phi)
+
+        mask = np.abs(q_abs) > np.abs(2 * k * np.cos(np.deg2rad(phi)))
+        phi_corrected = phi.copy()
+
+        phi_corrected[mask] = np.rad2deg(
+            np.arccos(np.clip(q_abs[mask] / (2 * k), -1.0, 1.0))
+        )
+
+        return phi_corrected
+
+    angle_arr = adjust_missing_wedge(wavelength, radius_arr, angle_arr)
+    img_container.radius = radius_arr
+    img_container.angle = angle_arr
+
+    img_container.radius_width = np.array([box.fitting_result['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max
+
     img_container.angle_width = np.array([box.fitting_result['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
 
 
@@ -290,6 +317,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
 
 
 def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
+                           ratio_threshold = 50, clustering_distance = 7, clustering_extend = 2,
                            use_poll = False, debug = False, multiprocessing = False):
     data_loaded = DataLoader(filename, batch_size=batch_size)
     entry_list = data_loaded.entry_list
@@ -348,7 +376,11 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
 
 
                 data.ang_deg_max = ang_deg_max
-                img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll, debug, multiprocessing)
+                img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll,
+                                                          ratio_threshold,
+                                                          clustering_distance,
+                                                          clustering_extend,
+                                                          debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
                 entry_done = data_loaded.entry_done
                 batch_num = data_loaded.batch_num + 1
@@ -361,6 +393,7 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
 
 
 def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.array([512,1024]),
+                            ratio_threshold = 50, clustering_distance = 7, clustering_extend = 2,
                            use_poll = False, debug = False, multiprocessing = False):
     detected_peaks = DetectedPeaks()
     data = DataBatch()
@@ -375,14 +408,14 @@ def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.a
     data.ai = img_container.ai
     data.wavelength = img_container.wavelength
     data.q_abs_max = np.sqrt(img_container.q_xy**2 + img_container.q_z**2)
-    data.ang_deg_max = 0
+    data.ang_deg_max = 90
     data.q_xy = np.linspace(0, img_container.q_xy, img_container.raw_reciprocal.shape[1])
     data.q_z = np.linspace(0, img_container.q_z, img_container.raw_reciprocal.shape[0])
 
     data.boxes = boxes_preprocessing(detected_peaks,
                                               data.polar_shape, data.wavelength,
-                                              data.q_abs_max)
-    data.clusters = cluster_boxes_by_centers(data.boxes)
+                                              data.q_abs_max, ratio_threshold)
+    data.clusters = cluster_boxes_by_centers(data.boxes, clustering_distance, clustering_extend)
     peaks_pool = None
     yy, zz = None, None
 
@@ -395,10 +428,7 @@ def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.a
     img_container = _data2container(data.boxes, data.polar_shape, data.q_abs_max, data.ang_deg_max,
                                                   data.q_xy, data.q_z,
                                                   np.array([0]*len(detected_peaks.score)),
-                                                  np.array(detected_peaks.score))
+                                                  np.array(detected_peaks.score),
+                                                  data.wavelength)
 
     return img_container
-
-
-
-    pass
