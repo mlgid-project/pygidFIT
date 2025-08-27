@@ -12,7 +12,7 @@ class Boxes:
     fitting_result = None
 
 
-def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 50) -> bool:
+def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold, q, q_xy_max, q_z_max, polar_shape_0) -> bool:
     """
     Classifies a bounding box as either a 'line' or a 'peak' based on its aspect ratio.
 
@@ -31,7 +31,14 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 50) -> bool:
     aspect_ratio = max(height / width, width / height)
 
     result2 =  True if aspect_ratio >= ratio_threshold else False
-    return result1 or result2
+
+    ang_hor = 0 if q < q_xy_max else np.arccos(q_xy_max/q)
+    ang_vert = 0 if q < q_z_max else np.arccos(q_z_max/q)
+    ratio = (np.pi/2 - ang_hor - ang_vert) / (np.pi/2)
+    result3 = height > 0.8 * polar_shape_0 * ratio
+    # if result3:
+    #     print("found ring: ", np.rad2deg(ang_hor), np.rad2deg(ang_vert), ratio)
+    return result1 or result2 or result3
 
     #
     # return True if shape <= height*1.5 else False
@@ -40,7 +47,7 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold = 50) -> bool:
 
 
 def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
-                        ratio_threshold):
+                        ratio_threshold, q_xy_max, q_z_max):
 
     radius1_q = detected_peaks.radius - (detected_peaks.radius_width / 2)
     radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 2)
@@ -75,7 +82,10 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
     boxes_list = []
     for i in range(len(radius1)):
         is_cut_qxy, is_cut_qz = _get_cut_flags(radius1_q[i],theta1_deg[i],radius2_q[i],theta2_deg[i],wavelength)
-        boxes_list.append(Boxes(boxes[i], find_box_type(is_cut_qxy, is_cut_qz, boxes[i], ratio_threshold), i,is_cut_qxy, is_cut_qz ))
+        boxes_list.append(Boxes(boxes[i],
+                                find_box_type(is_cut_qxy, is_cut_qz, boxes[i], ratio_threshold,
+                                              detected_peaks.radius[i], q_xy_max, q_z_max, polar_shape[0]),
+                                i,is_cut_qxy, is_cut_qz ))
         boxes_list[i].boxes_q_deg = boxes_q_deg[i]
         boxes_list[i].x0c = x0c[i]
         boxes_list[i].y0c = y0c[i]

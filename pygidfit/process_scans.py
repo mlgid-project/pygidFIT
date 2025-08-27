@@ -133,6 +133,7 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
 
     # Print example data
     print("box example: ", boxes[0], "cluster example: ", clusters[0])
+    # print("box all: ", boxes, "cluster all: ", clusters)
 
 
 def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz, clusters, peaks_pool = None, debug = False,
@@ -208,7 +209,8 @@ def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
     for i in range(len(data.detected_peaks)):
         data.boxes.append(boxes_preprocessing(data.detected_peaks[i],
                                               data.polar_shape, data.wavelength,
-                                              data.q_abs_max, ratio_threshold))
+                                              data.q_abs_max, ratio_threshold,
+                                              np.max(data.q_xy), np.max(data.q_z)))
 
     ## boxes clustering
     data.clusters = []
@@ -414,7 +416,8 @@ def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.a
 
     data.boxes = boxes_preprocessing(detected_peaks,
                                               data.polar_shape, data.wavelength,
-                                              data.q_abs_max, ratio_threshold)
+                                              data.q_abs_max, ratio_threshold,
+                                                np.max(data.q_xy), np.max(data.q_z))
     data.clusters = cluster_boxes_by_centers(data.boxes, clustering_distance, clustering_extend)
     peaks_pool = None
     yy, zz = None, None
