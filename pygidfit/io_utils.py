@@ -200,7 +200,11 @@ class DataLoader:
 
     def _load_file_structure(self) -> List[str]:
         with h5py.File(self.filename, 'r') as f:
-            entry_list = list(f.keys())
-            if not entry_list:
+            entry_list = []
+            for key in f.keys():
+                group = f[f"{key}/data"]
+                if "img_gid_q" in group:
+                    entry_list.append(key)
+            if len(entry_list) == 0:
                 raise ValueError("No entries found in the HDF5 file.")
             return entry_list
