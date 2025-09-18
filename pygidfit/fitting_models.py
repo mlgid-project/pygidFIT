@@ -5,15 +5,12 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.patches import Rectangle, Ellipse
 from numba import njit
-from multiprocessing import Pool
+from multiprocessing import Pool, shared_memory
 import time
-from scipy.spatial import cKDTree
 
 from pygidfit.box_utils import (
     make_box_attributes,
 )
-
-
 
 def gaussian_height(x, radius, amplitude, radius_width):
     return amplitude * np.exp(-0.5 * ((x - radius) / radius_width) ** 2)
@@ -48,22 +45,6 @@ def two_d_rotated_gaussian(x, y, amp, xo, yo, sigma_x, sigma_y, theta):
 
     return amp * np.exp(-(a * (x - x0) ** 2 + 2.0 * b * (x - x0) * (y - y0) + c * (y - y0) ** 2))
 
-# def two_d_gaussian(x, y, amplitude, xo, yo, sigma_x, sigma_y, theta):
-#     """2D rotated Gaussian function."""
-#     x0 = float(xo)
-#     y0 = float(yo)
-#     if theta == 0:
-#         a = 1 / (2 * sigma_x ** 2)
-#         c = 1 / (2 * sigma_y ** 2)
-#         b = 0
-#     else:
-#         a = (np.cos(theta) ** 2) / (2 * sigma_x ** 2) + (np.sin(theta) ** 2) / (2 * sigma_y ** 2)
-#         b = -np.sin(2 * theta) / (4 * sigma_x ** 2) + np.sin(2 * theta) / (4 * sigma_y ** 2)
-#         c = (np.sin(theta) ** 2) / (2 * sigma_x ** 2) + (np.cos(theta) ** 2) / (2 * sigma_y ** 2)
-#     result = amplitude * np.exp(-(a * (x - x0) ** 2 + 2 * b * (x - x0) * (y - y0) + c * (y - y0) ** 2))
-#     return result
-
-# @njit
 def sum_of_gaussians_and_plane(x, y, param_array, n):
     z = np.zeros_like(x)
 
@@ -88,24 +69,6 @@ def sum_of_gaussians_and_plane(x, y, param_array, n):
 
     return z
 
-
-# def sum_of_gaussians_and_plane(x, y, param_array, n):
-#     z = np.zeros_like(x)
-#     for i in range(n):
-#         base = i * 6
-#         amp = param_array[base]
-#         xo = param_array[base + 1]
-#         yo = param_array[base + 2]
-#         sigx = param_array[base + 3]
-#         sigy = param_array[base + 4]
-#         theta = param_array[base + 5]
-#         z += two_d_rotated_gaussian(x, y, amp, xo, yo, sigx, sigy, theta)
-#
-#     a = param_array[n * 6]
-#     b = param_array[n * 6 + 1]
-#     c = param_array[n * 6 + 2]
-#     z += a * x + b * y + c
-#     return z
 def build_sum_gaussians_wrapper(n):
     def model_func(x, y, **params):
         param_list = []
@@ -121,34 +84,6 @@ def build_sum_gaussians_wrapper(n):
         return sum_of_gaussians_and_plane(x, y, param_array, n)
     return model_func
 
-# def build_sum_gaussians_wrapper(n):
-#     def model_func(x, y, **params):
-#         param_list = []
-#         for i in range(n):
-#             for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
-#                 param_list.append(params[f'g{i}_{key}'])
-#         param_list.extend([params['A'], params['B'], params['C']])
-#         param_array = np.array(param_list, dtype=np.float64)
-#         return sum_of_gaussians_and_plane(x, y, param_array, n)
-#     return model_func
-
-
-# def build_sum_gaussians(n):
-#     """Constructs a model function that sums N 2D Gaussians + a linear background plane."""
-#
-#     def model_func(x, y, **params):
-#         z = np.zeros_like(x)
-#         for i in range(n):
-#             p = {
-#                 k: params[f'{k}{i}'] for k in ['amplitude', 'xo', 'yo', 'sigma_x', 'sigma_y', 'theta']
-#             }
-#             z += two_d_gaussian(x, y, **p, offset=0)
-#         # Add linear background plane
-#         z += params['a'] * x + params['b'] * y + params['c']
-#         return z
-#
-#     return model_func
-
 def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     """Compute initial 2D Gaussian parameters from subarray."""
     amp = np.nanmax(sub)
@@ -158,7 +93,7 @@ def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     com_y, com_x = safe_center_of_mass(sub)
     xo = x0 + com_x
     yo = y0 + com_y
-    sigma_x = max((x1 - x0) / 2 / 2.355, 1.0)  # FWHM to sigma
+    sigma_x = max((x1 - x0) / 2 / 2.355, 1.0)
     sigma_y = max((y1 - y0) / 2 / 2.355, 1.0)
     return amp, xo, yo, sigma_x, sigma_y
 
@@ -208,18 +143,10 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
     # Loop through all boxes in the cluster
     for i, idx in enumerate(cluster.indices):
         box = boxes[idx]
-        # Convert box limits to ROI-relative pixel indices
-        # x0 = int(np.clip(np.round(box.limits[0]) - xmin, 0, x_len - 1))
-        # y0 = int(np.clip(np.round(box.limits[1]) - ymin, 0, y_len - 1))
-        # x1 = int(np.clip(np.round(box.limits[2]) - xmin, 0, x_len - 1))
-        # y1 = int(np.clip(np.round(box.limits[3]) - ymin, 0, y_len - 1))
-
         x0 = int(np.clip(np.round(box.limits[0]), xmin, xmax ))
         y0 = int(np.clip(np.round(box.limits[1]) ,ymin, ymax))
         x1 = int(np.clip(np.round(box.limits[2]) , xmin, xmax))
         y1 = int(np.clip(np.round(box.limits[3]) , ymin, ymax))
-
-
 
         sub = roi_corrected[y0- ymin:y1- ymin, x0- xmin:x1- xmin]
 
@@ -250,16 +177,11 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
                 sigma_x = prev_box.fitting_result['radius_width']
                 sigma_y = prev_box.fitting_result['angle_width']
             else:
-                if debug:
+                if debug and peaks_pool is not None:
                     print("Couldn't find previous peak")
                 amp, xo, yo, sigma_x, sigma_y = compute_initial_params(sub, x0, y0, x1, y1, debug)
 
-
-        # x_bound_min = np.clip(x0 - (x1 - x0)/2 + xmin, 0, w) - xmin
-        # x_bound_max = np.clip(x1 + (x1 - x0)/2 + xmax, 0, w) - xmax
-        # y_bound_min = np.clip(y0 - (y1 - y0)/2 + ymin, 0, h) - ymin
-        # y_bound_max = np.clip(y1 + (y1 - y0) / 2 + ymin, 0, h) - ymin if not box.is_cut_qz else h - ymin
-        if debug:
+        if False: #debug
             print("amp, xo, yo, sigma_x, sigma_y ", amp, xo, yo, sigma_x, sigma_y )
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
         x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
@@ -284,6 +206,11 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
         return None, None, None
     time1 = time.time()
 
+    if False:
+        res = fit_peak_cluster_jaxfit_from_lmfit(data, X_flat, Y_flat, params)
+    if False:
+        res = fit_peak_cluster_numba_cuda_from_lmfit(data, X_flat, Y_flat, params, max_nfev=500)
+
     # Perform the fit
     try:
         result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares") # max_nfev=100
@@ -296,13 +223,9 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
             'success': result.success,
             'message': result.message,
         }
-        # if debug:
-        #     print("result.success", result.success)
-        #     for name, par in result.params.items():
-        #         print(name, "value:", par.value, "vary:", par.vary, "stderr:", par.stderr)
 
     except:
-        print("Failed")
+        # print("Failed")
         param_values = {name: p.value for name, p in params.items()}
         param_errors = {name: np.nan for name in params}
         result = None
@@ -315,24 +238,20 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
     time2 = time.time()
 
     if debug:
-        plot_peak_cluster_debug(
-            roi=roi,
-            xmin=xmin,
-            ymin=ymin,
-            cluster=cluster,
-            boxes=boxes,
-            params=params,
-            result=result,
-            time_preproc=(time1 - time0),
-            time_fit=(time2 - time1)
-        )
-
-
-
-    # for i in range(len(cluster.indices)):
-    #     list_to_return['params'][f'g{i}_radius'] +=xmin
-    #     list_to_return['params'][f'g{i}_angle'] += ymin
-    # list_to_return['params']['C'] -= list_to_return['params']['A']*xmin + list_to_return['params']['B']*ymin
+        try:
+            plot_peak_cluster_debug(
+                roi=roi,
+                xmin=xmin,
+                ymin=ymin,
+                cluster=cluster,
+                boxes=boxes,
+                params=params,
+                result=result,
+                time_preproc=(time1 - time0),
+                time_fit=(time2 - time1)
+            )
+        except:
+            print("Can't plot peak cluster")
     return list_to_return
 
 
@@ -535,14 +454,11 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
 
     # Plane params
     a, b, c = 0, 0, np.nanpercentile(roi, 10)
-    # X_plane, Y_plane = np.mgrid[0:y_len, 0:x_len]
     X_plane, Y_plane = np.mgrid[ymin: ymax, xmin: xmax]
     Z_plane = a * X_plane + b * Y_plane + c
     roi_corrected = roi - Z_plane
 
     # Build sum of 2D Gaussians model
-
-
 
     peak_indices = []
     ring_indices = []
@@ -559,11 +475,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
     # Loop through all boxes in the cluster
     for i, idx in enumerate(peak_indices):
         box = boxes[idx]
-        # Convert box limits to ROI-relative pixel indices
-        # x0 = int(np.clip(np.round(box.limits[0]) - xmin, 0, x_len - 1))
-        # y0 = int(np.clip(np.round(box.limits[1]) - ymin, 0, y_len - 1))
-        # x1 = int(np.clip(np.round(box.limits[2]) - xmin, 0, x_len - 1))
-        # y1 = int(np.clip(np.round(box.limits[3]) - ymin, 0, y_len - 1))
         x0 = int(np.clip(np.round(box.limits[0]), xmin, xmax ))
         y0 = int(np.clip(np.round(box.limits[1]) ,ymin, ymax))
         x1 = int(np.clip(np.round(box.limits[2]) , xmin, xmax))
@@ -589,11 +500,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
             sigma_x = max((x1 - x0) /2/2.355, 1.0)  # FWHM to sigma conversion
             sigma_y = max((y1 - y0) /2/2.355, 1.0)
 
-        # x_bound_min = np.clip(x0 - (x1 - x0) / 2 + xmin, 0, w) - xmin
-        # x_bound_max = np.clip(x1 + (x1 - x0) / 2 + xmin, 0, w) - xmin
-        # y_bound_min = np.clip(y0 - (y1 - y0) / 2 + ymin, 0, h) - ymin
-        # y_bound_max = np.clip(y1 + (y1 - y0) / 2 + ymin, 0, h) - ymin if not box.is_cut_qz else h - ymin
-
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
         x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
         y_bound_min = np.clip(y0 - (y1 - y0)/2 , ymin, ymax)
@@ -606,11 +512,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         params.add(f'g{i}_radius_width', value=sigma_x, min=(x1 - x0) / 8, max=(x1 - x0) / 2)
         params.add(f'g{i}_angle_width', value=sigma_y, min=(y1 - y0) / 8, max=(y1 - y0) / 2)
         params.add(f'g{i}_theta', value=0, vary=False)
-
-    # Add parameters for the background plane
-    # params.add('A', value=a,)
-    # params.add('B', value=b,)
-    # params.add('C', value=c)
 
     # params.add('A', value=a, min = -1, max = 1)
     params.add('A', value=a, min=-0.1, max=0.1)
@@ -642,7 +543,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
                 p.value = 0.0
 
     # Perform the fit
-    result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares",)  # max_nfev=100
+    result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares")  # max_nfev=100
     time2 = time.time()
 
     if debug:
@@ -675,10 +576,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         'success': result.success,
         'message': result.message,
     }
-
-    # for i in range(len(peak_indices)):
-    #     list_to_return['params'][f'g{i}_radius'] +=xmin
-    #     list_to_return['params'][f'g{i}_angle'] += ymin
 
     return list_to_return
 
@@ -831,15 +728,6 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
     roi = img[ymin:ymax, xmin:xmax]
     profile = np.nanmean(roi, axis=0)
 
-    # sum_values = np.nansum(roi, axis=0)
-    # count_values = np.sum(~np.isnan(img), axis=0)
-    # profile = sum_values / count_values
-    # profile[count_values == 0] = np.nan
-    # print(sum_values, count_values)
-    # plt.plot(profile)
-    # plt.show()
-
-
     x = np.arange(xmin, xmax)
 
     # Estimate linear background
@@ -868,8 +756,6 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
     # Background model
     model = LinearModel(prefix='lin_')
     params = model.make_params(intercept=intercept_guess, slope=slope_guess)
-    # params['lin_intercept'].set(min=0, max=10)
-    # params['lin_slope'].set(min=np.nanmin(profile_corrected), max=5)
 
     # Add one Gaussian per ring
     for i, idx in enumerate(cluster.indices):
@@ -902,6 +788,9 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         model += gmod
 
     try:
+        mask = np.isfinite(profile)
+        profile = profile[mask]
+        x =  x[mask]
         result = model.fit(profile, params, x=x, max_nfev=500, method="least_squares",) #, max_nfev=100
         param_values = dict(result.best_values)
         param_errors = {
@@ -910,29 +799,20 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         }
         success = result.success
         message = result.message
-        # for i in cluster.indices:
-        #     boxes[i].fitted_params = {
-        #         k: result.params[k].value for k in result.params
-        #     }
-        #     boxes[i].fitted_errors = {
-        #         k: result.params[k].stderr for k in result.params
-        #     }
     except:
         param_values = {name: p.value for name, p in params.items()}
         param_errors = {name: np.nan for name in params}
         success = False
         message = "Failed"
-        # for i in cluster.indices:
-        #     boxes[i].initial_guess = {
-        #         k: params[k].value for k in params
-        #     }
-
 
     if debug:
         plt.figure(figsize=(6, 4))
         plt.plot(x, profile, 'b', label='Data')
-        plt.plot(x, result.best_fit, 'r-', label='Best Fit')
-        plt.plot(x, result.init_fit, 'c--', label='Initial Guess')
+        try:
+            plt.plot(x, result.best_fit, 'r-', label='Best Fit')
+            plt.plot(x, result.init_fit, 'c--', label='Initial Guess')
+        except:
+            print("Fitting failed")
         plt.title(f"Cluster {cluster.indices.tolist()}")
         plt.xlabel('X [pixels]')
         plt.ylabel('Mean intensity')
@@ -961,18 +841,231 @@ def process_cluster_args(args):
         result = None
     return cluster, result
 
+##### MP with shared memory
 def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=False):
     cluster_types = ['rings', 'peaks', 'both']
 
-    for ctype in cluster_types:
-        ctype_clusters = [(cluster, ctype, boxes, img, masked_img, debug)
-                          for cluster in clusters if cluster.type == ctype]
-        if not ctype_clusters:
-            continue
+    shm_img, shm_masked, img_shape, masked_shape, img_dtype, masked_dtype = init_shared_images(img, masked_img)
 
-        with Pool() as pool:
-            results = pool.map(process_cluster_args, ctype_clusters)
+    try:
+        for ctype in cluster_types:
+            ctype_clusters = [(cluster, ctype, boxes,
+                               shm_img.name, shm_masked.name,
+                               img_shape, masked_shape, img_dtype, masked_dtype,
+                               debug)
+                              for cluster in clusters if cluster.type == ctype]
+            if not ctype_clusters:
+                continue
 
-        for cluster, fitting_result in results:
-            make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
-            cluster.fitting_result = fitting_result
+            with Pool() as pool:
+                results = pool.map(process_cluster_shared, ctype_clusters)
+
+            for cluster, fitting_result in results:
+                make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
+                cluster.fitting_result = fitting_result
+    finally:
+        shm_img.close()
+        shm_img.unlink()
+        shm_masked.close()
+        shm_masked.unlink()
+
+
+def init_shared_images(img, masked_img):
+    shm_img = shared_memory.SharedMemory(create=True, size=img.nbytes)
+    shm_masked = shared_memory.SharedMemory(create=True, size=masked_img.nbytes)
+
+    shm_img_array = np.ndarray(img.shape, dtype=img.dtype, buffer=shm_img.buf)
+    shm_masked_array = np.ndarray(masked_img.shape, dtype=masked_img.dtype, buffer=shm_masked.buf)
+    np.copyto(shm_img_array, img)
+    np.copyto(shm_masked_array, masked_img)
+
+    return shm_img, shm_masked, img.shape, masked_img.shape, img.dtype, masked_img.dtype
+
+def process_cluster_shared(args):
+    cluster, ctype, boxes, shm_img_name, shm_masked_name, img_shape, masked_shape, img_dtype, masked_dtype, debug = args
+
+    existing_shm_img = shared_memory.SharedMemory(name=shm_img_name)
+    existing_shm_masked = shared_memory.SharedMemory(name=shm_masked_name)
+    img = np.ndarray(img_shape, dtype=img_dtype, buffer=existing_shm_img.buf)
+    masked_img = np.ndarray(masked_shape, dtype=masked_dtype, buffer=existing_shm_masked.buf)
+
+    fitting_result = process_cluster_args((cluster, ctype, boxes, img, masked_img, debug))
+
+    return fitting_result
+
+
+############## numba start
+
+# import numpy as np
+# from numba import cuda
+# from scipy.optimize import least_squares
+# import cupy as cp
+# import math
+#
+# @cuda.jit
+# def compute_residuals_kernel(X, Y, zdata, params, residuals, N_gauss):
+#     idx = cuda.grid(1)
+#     if idx >= zdata.size:
+#         return
+#
+#     val = 0.0
+#     for g in range(N_gauss):
+#         base = g*6
+#         n0 = params[base]
+#         x0 = params[base+1]
+#         y0 = params[base+2]
+#         sigma_x = params[base+3]
+#         sigma_y = params[base+4]
+#         theta = params[base+5]
+#
+#         Xr = X[idx] - x0
+#         Yr = Y[idx] - y0
+#         gauss = math.exp(-0.5*(Xr**2/(sigma_x*sigma_x) + Yr**2/(sigma_y*sigma_y))) * n0
+#         val += gauss
+#
+#     A = params[-3]
+#     B = params[-2]
+#     C = params[-1]
+#     val += A + B*X[idx] + C*Y[idx]
+#
+#     residuals[idx] = zdata[idx]
+#     residuals[idx] -= val
+#
+# def fit_peak_cluster_numba_cuda_from_lmfit(zdata, X, Y, lmfit_params, max_nfev=500):
+#     param_list = []
+#     bounds_min = []
+#     bounds_max = []
+#
+#     n_peaks = max([int(name.split('_')[0][1:]) for name in lmfit_params.keys() if name.startswith('g')]) + 1
+#
+#     for i in range(n_peaks):
+#         for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
+#             pname = f'g{i}_{key}'
+#             p = lmfit_params[pname]
+#             param_list.append(p.value)
+#             bounds_min.append(-np.inf if p.min is None else p.min)
+#             bounds_max.append(np.inf if p.max is None else p.max)
+#
+#     for key in ['A', 'B', 'C']:
+#         p = lmfit_params[key]
+#         param_list.append(p.value)
+#         bounds_min.append(-np.inf if p.min is None else p.min)
+#         bounds_max.append(np.inf if p.max is None else p.max)
+#
+#     p0 = np.array(param_list)
+#     bounds = (np.array(bounds_min), np.array(bounds_max))
+#     X_gpu = cuda.to_device(X)
+#     Y_gpu = cuda.to_device(Y)
+#     zdata_gpu = cuda.to_device(zdata)
+#     residuals_gpu = cuda.device_array_like(zdata_gpu)
+#
+#     def compute_residuals(params):
+#         params_gpu = cuda.to_device(params)
+#         threadsperblock = 128
+#         blockspergrid = (zdata_gpu.size + threadsperblock - 1) // threadsperblock
+#         compute_residuals_kernel[blockspergrid, threadsperblock](
+#             X_gpu, Y_gpu, zdata_gpu, params_gpu, residuals_gpu, n_peaks
+#         )
+#         return residuals_gpu.copy_to_host()
+#
+#     numba_time0 = time.time()
+#     result = least_squares(compute_residuals, p0, bounds=bounds, max_nfev=max_nfev)
+#     # try:
+#     #     result = least_squares(compute_residuals, p0, bounds=bounds, max_nfev=max_nfev)
+#     # except:
+#     #     result = None
+#     numba_time1 = time.time()
+#     print("!!!!!!!!!!!! numba_time", (numba_time1 - numba_time0) * 1000)
+#     # print(f"numba result{result}")
+#
+#     return result
+
+############## numba start
+
+############## jaxfit start
+# import jax
+# import jax.numpy as jnp
+# from jaxfit import CurveFit
+#
+# def two_d_rotated_gaussian_jax(x, y, amp, xo, yo, sigx, sigy, theta):
+#     cos_t = jnp.cos(theta)
+#     sin_t = jnp.sin(theta)
+#     a = (cos_t**2)/(2*sigx**2) + (sin_t**2)/(2*sigy**2)
+#     b = -jnp.sin(2*theta)/(4*sigx**2) + jnp.sin(2*theta)/(4*sigy**2)
+#     c = (sin_t**2)/(2*sigx**2) + (cos_t**2)/(2*sigy**2)
+#     return amp * jnp.exp(-(a*(x-xo)**2 + 2*b*(x-xo)*(y-yo) + c*(y-yo)**2))
+#
+# def sum_of_gaussians_and_plane_jax(x, y, param_array, n):
+#     def add_gaussian(i, z):
+#         base = i*6
+#         amp = param_array[base]
+#         xo = param_array[base+1]
+#         yo = param_array[base+2]
+#         sigx = param_array[base+3]
+#         sigy = param_array[base+4]
+#         theta = param_array[base+5]
+#
+#         z += jax.lax.cond(
+#             jnp.any(jnp.isnan(jnp.array([amp, xo, yo, sigx, sigy, theta]))),
+#             lambda _: jnp.zeros_like(x),
+#             lambda _: two_d_rotated_gaussian_jax(x, y, amp, xo, yo, sigx, sigy, theta),
+#             operand=None
+#         )
+#         return z
+#
+#     z_init = jnp.zeros_like(x)
+#     z = jax.lax.fori_loop(0, n, add_gaussian, z_init)
+#
+#     a_plane = param_array[n*6] if n*6 < len(param_array) else 0
+#     b_plane = param_array[n*6+1] if n*6+1 < len(param_array) else 0
+#     c_plane = param_array[n*6+2] if n*6+2 < len(param_array) else 0
+#     z += a_plane * x + b_plane * y + c_plane
+#     return z
+#
+# def fit_peak_cluster_jaxfit_from_lmfit(data, X_flat, Y_flat, lm_params):
+#     param_names = list(lm_params.keys())
+#     n_peaks = sum(1 for name in param_names if name.startswith('g') and '_amplitude' in name)
+#
+#     print("n_peaks", n_peaks)
+#
+#     param_list = []
+#     bounds_min = []
+#     bounds_max = []
+#
+#     for i in range(n_peaks):
+#         for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
+#             pname = f'g{i}_{key}'
+#             p = lm_params[pname]
+#             param_list.append(p.value)
+#             bounds_min.append(-jnp.inf if p.min is None else p.min)
+#             bounds_max.append(jnp.inf if p.max is None else p.max)
+#
+#     for pname in ['A', 'B', 'C']:
+#         p = lm_params[pname]
+#         param_list.append(p.value)
+#         bounds_min.append(-jnp.inf if p.min is None else p.min)
+#         bounds_max.append(jnp.inf if p.max is None else p.max)
+#
+#     params_jax = jnp.array(param_list, dtype=jnp.float32)
+#     print("params_jax", params_jax)
+#     bounds = (jnp.array(bounds_min, dtype=jnp.float32), jnp.array(bounds_max, dtype=jnp.float32))
+#
+#     coords_tuple = [jnp.array(X_flat), jnp.array(Y_flat)]
+#     jcf = CurveFit()
+#
+#     def model_for_fit(coords, *param_array):
+#         param_array = jnp.array(param_array)
+#         return sum_of_gaussians_and_plane_jax(coords[0], coords[1], param_array, n_peaks).ravel()
+#
+#     jaxfit_time0 = time.time()
+#     try:
+#         popt, pcov = jcf.curve_fit(model_for_fit, coords_tuple, data, p0=params_jax, bounds=bounds)
+#     except:
+#         popt, pcov = None, None
+#     jaxfit_time1 = time.time()
+#     print("jaxfit_time", (jaxfit_time1 - jaxfit_time0) * 1000)
+#     print("popt", popt)
+#     return popt, pcov
+
+############## jaxfit end
+
