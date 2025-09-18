@@ -137,6 +137,7 @@ class DataLoader:
     data: DataBatch = None
     entry_done: bool = False
     debug: bool = False
+    develop: bool = False
 
     def __post_init__(self):
         if self.entry_list is None:
@@ -149,7 +150,11 @@ class DataLoader:
             return self.load_entry(self.entry_list[self.entry_num]), self.entry_list
 
     def load_entry(self, entry: str):
-        with h5py.File(self.filename, 'r') as f:
+        if self.develop:
+            params = dict(rdcc_nslots=0, rdcc_nbytes=0, rdcc_w0=0)
+        else:
+            params = {}
+        with h5py.File(self.filename, 'r', **params) as f:
             analysis = f[f"{entry}/data/analysis"]
             folder_num = len(analysis.keys())
             ind1 = self.batch_num * self.batch_size
