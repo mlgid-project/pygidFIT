@@ -31,13 +31,14 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold, q, q_xy_max, q_z_
     aspect_ratio = max(height / width, width / height)
 
     result2 =  True if aspect_ratio >= ratio_threshold else False
+    result2 = False
 
     ang_hor = 0 if q < q_xy_max else np.arccos(q_xy_max/q)
     ang_vert = 0 if q < q_z_max else np.arccos(q_z_max/q)
     ratio = (np.pi/2 - ang_hor - ang_vert) / (np.pi/2)
     result3 = height > 0.8 * polar_shape_0 * ratio
     # if result3:
-    #     print("found ring: ", np.rad2deg(ang_hor), np.rad2deg(ang_vert), ratio)
+    #     print("found ring: ", np.rad2deg(ang_hor), np.rad2deg(ang_vert), ratio, xmin, ymin, xmax, ymax)
     return result1 or result2 or result3
 
     #
