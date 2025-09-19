@@ -340,7 +340,8 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                                          )
                 data = data_loaded.data
                 data.polar_shape = polar_shape
-                if yy is None or zz is None:
+                # if yy is None or zz is None:
+                if True:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
                 data.ang_deg_max = ang_deg_max
                 img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll,

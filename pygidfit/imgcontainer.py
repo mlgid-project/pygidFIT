@@ -54,6 +54,8 @@ class ImageContainer:
     beam_center_y = None
     h5_group = None
     nr: int = None
+
+
     qzqxyboxes : np.array = None
     boxes: np.array = None
     scores: np.array = None
