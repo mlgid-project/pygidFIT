@@ -1,6 +1,5 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import List
 from scipy.spatial import cKDTree
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
@@ -11,12 +10,6 @@ class Cluster:
     bbox: np.ndarray      # [xmin, ymin, xmax, ymax] — bounding box of the cluster
     indices: np.ndarray   # (M,) — indices of the original boxes that belong to this cluster
     type: str = None
-
-
-from scipy.spatial import cKDTree
-from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import connected_components
-import numpy as np
 
 
 def cluster_peaks(peak_indices, ring_indices, centers, boxes, is_ring_list, r, extend):
@@ -126,8 +119,7 @@ def cluster_rings(ring_indices, centers, boxes, r, extend):
 
     return final_clusters
 
-
-def cluster_boxes_by_centers(boxes_list, r, extend):
+def cluster_boxes_by_centers(boxes_list, r_peaks, r_rings, extend):
     boxes_id = np.array([box.index for box in boxes_list])
     is_ring_list = np.array([box.is_ring for box in boxes_list], dtype=bool)
 
@@ -138,6 +130,6 @@ def cluster_boxes_by_centers(boxes_list, r, extend):
     ring_indices = np.where(is_ring_list)[0]
 
     clusters = []
-    clusters += cluster_peaks(peak_indices, ring_indices, centers, boxes, is_ring_list, r, extend)
-    clusters += cluster_rings(ring_indices, centers, boxes, r, extend)
+    clusters += cluster_peaks(peak_indices, ring_indices, centers, boxes, is_ring_list, r_peaks, extend)
+    clusters += cluster_rings(ring_indices, centers, boxes, r_rings, extend)
     return clusters

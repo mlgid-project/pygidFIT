@@ -200,7 +200,7 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
 
 
 def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
-        clustering_distance,  clustering_extend, debug, multiprocessing):
+        clustering_distance_peaks, clustering_distance_rings,  clustering_extend, debug, multiprocessing):
 
     ## boxes preprocessing
     data.boxes = []
@@ -213,7 +213,7 @@ def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
     ## boxes clustering
     data.clusters = []
     for i in range(data.raw_giwaxs.shape[0]):
-        data.clusters.append(cluster_boxes_by_centers(data.boxes[i], clustering_distance, clustering_extend))
+        data.clusters.append(cluster_boxes_by_centers(data.boxes[i], clustering_distance_peaks, clustering_distance_rings, clustering_extend))
     ## image fitting
     img_container_list = []
     for i in range(data.raw_giwaxs.shape[0]):
@@ -316,7 +316,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
 
 
 def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
-                           ratio_threshold = 50, clustering_distance = 7, clustering_extend = 2,
+                           ratio_threshold = 50, clustering_distance_peaks = 7, clustering_distance_rings = 40, clustering_extend = 2,
                            use_poll = False, debug = False, multiprocessing = False):
     data_loaded = DataLoader(filename, batch_size=batch_size)
     entry_list = data_loaded.entry_list
@@ -345,7 +345,8 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 data.ang_deg_max = ang_deg_max
                 img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll,
                                                           ratio_threshold,
-                                                          clustering_distance,
+                                                          clustering_distance_peaks,
+                                                          clustering_distance_rings,
                                                           clustering_extend,
                                                           debug, multiprocessing)
                 DataSaver(img_container_list, filename, entry_list[i], batch_num, batch_size)
@@ -360,7 +361,7 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
 
 
 def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.array([512,1024]),
-                            ratio_threshold = 50, clustering_distance = 7, clustering_extend = 2,
+                            ratio_threshold = 50, clustering_distance_peaks = 7, clustering_distance_rings = 7, clustering_extend = 2,
                            use_poll = False, debug = False, multiprocessing = False):
     detected_peaks = DetectedPeaks()
     data = DataBatch()
@@ -383,7 +384,7 @@ def process_data_img_container(img_container, crit_angle = 0, polar_shape = np.a
                                               data.polar_shape, data.wavelength,
                                               data.q_abs_max, ratio_threshold,
                                                 np.max(data.q_xy), np.max(data.q_z))
-    data.clusters = cluster_boxes_by_centers(data.boxes, clustering_distance, clustering_extend)
+    data.clusters = cluster_boxes_by_centers(data.boxes, clustering_distance_peaks, clustering_distance_rings, clustering_extend)
     peaks_pool = None
     yy, zz = None, None
 

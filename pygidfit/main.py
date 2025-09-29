@@ -7,20 +7,21 @@ from pygidfit.process_scans import process_data_from_file, process_data_img_cont
 
 
 def run_scans(
-        filename = None,
-        batch_size = 10,
-        crit_angle = 0,
-        polar_shape = np.array([512,1024]),
+        filename=None,
+        batch_size=10,
+        crit_angle=0,
+        polar_shape=np.array([512, 1024]),
         ratio_threshold=50,
-        clustering_distance=7,
+        clustering_distance_peaks=7,
+        clustering_distance_rings=40,
         clustering_extend=2,
-        use_pool = False,
-        debug = False,
-        multiprocessing = True,
-    ):
+        use_pool=False,
+        debug=False,
+        multiprocessing=True,
+):
     """
     Main function to process a range of scans.
-    
+
     Args:
         filename: Name of the file
         scan_range: Range of scan numbers to process (start, end)
@@ -34,7 +35,8 @@ def run_scans(
         crit_angle,
         polar_shape,
         ratio_threshold,
-        clustering_distance,
+        clustering_distance_peaks,
+        clustering_distance_rings,
         clustering_extend,
         use_pool,
         debug,
@@ -47,9 +49,10 @@ def run_scans_img_container(
         batch_size=10,
         crit_angle=0,
         polar_shape=np.array([512, 1024]),
-        ratio_threshold = 50,
-        clustering_distance = 7,
-        clustering_extend = 2,
+        ratio_threshold=50,
+        clustering_distance_peaks=7,
+        clustering_distance_rings=40,
+        clustering_extend=2,
         use_pool=False,
         debug=False,
         multiprocessing=False,
@@ -69,12 +72,14 @@ def run_scans_img_container(
         crit_angle,
         polar_shape,
         ratio_threshold,
-        clustering_distance,
+        clustering_distance_peaks,
+        clustering_distance_rings,
         clustering_extend,
         use_pool,
         debug,
         multiprocessing
     )
+
 
 # filename = 'S124_FAI_A1_after_gui_copy_with_duplicate.h5'
 if __name__ == "__main__":
