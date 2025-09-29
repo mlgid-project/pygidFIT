@@ -783,6 +783,7 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
             radius_width=sigma_guess
         )
         gparams[f'g{i}_amplitude'].min = 0
+        gparams[f'g{i}_radius_width'].min = 0
 
         params.update(gparams)
         model += gmod
@@ -980,7 +981,7 @@ def process_cluster_shared(args):
 #
 #     return result
 
-############## numba start
+############## numba end
 
 ############## jaxfit start
 # import jax
