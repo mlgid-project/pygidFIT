@@ -50,8 +50,8 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, ratio_threshold, q, q_xy_max, q_z_
 def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
                         ratio_threshold, q_xy_max, q_z_max):
 
-    radius1_q = detected_peaks.radius - (detected_peaks.radius_width / 2)
-    radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 2)
+    radius1_q = detected_peaks.radius - (detected_peaks.radius_width / 1) #2
+    radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 1) #2
 
 
     radius1 = np.round(radius1_q / q_abs_max * polar_shape[1]) - 1

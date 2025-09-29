@@ -285,20 +285,19 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     img_container.radius = radius_arr
     img_container.angle = angle_arr
 
-    img_container.radius_width = np.array([box.fitting_result['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max
-
-    img_container.angle_width = np.array([box.fitting_result['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
-
+    # scaling and *2 as in mlgidGUI and mlgidDETECT
+    img_container.radius_width = np.array([box.fitting_result['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max*2
+    img_container.angle_width = np.array([box.fitting_result['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max*2
 
     img_container.amplitude_err = np.array([box.fitting_error['amplitude'] for box in boxes])
-    img_container.A_err  = np.array([box.fitting_error['A'] for box in boxes]) * polar_shape[1] / q_abs_max
-    img_container.B_err  = np.array([box.fitting_error['B'] for box in boxes]) * polar_shape[0] / ang_deg_max
-    img_container.C_err  = np.array([box.fitting_error['C'] for box in boxes])
-    img_container.theta_err  = np.array([box.fitting_error['theta'] for box in boxes])
-    img_container.radius_err  = np.array([box.fitting_error['radius'] for box in boxes])/polar_shape[1]*q_abs_max
-    img_container.radius_width_err  = np.array([box.fitting_error['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max
-    img_container.angle_err  = np.array([box.fitting_error['angle'] for box in boxes])/polar_shape[0]*ang_deg_max
-    img_container.angle_width_err  = np.array([box.fitting_error['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
+    img_container.A_err = np.array([box.fitting_error['A'] for box in boxes]) * polar_shape[1] / q_abs_max
+    img_container.B_err = np.array([box.fitting_error['B'] for box in boxes]) * polar_shape[0] / ang_deg_max
+    img_container.C_err = np.array([box.fitting_error['C'] for box in boxes])
+    img_container.theta_err = np.array([box.fitting_error['theta'] for box in boxes])
+    img_container.radius_err = np.array([box.fitting_error['radius'] for box in boxes])/polar_shape[1]*q_abs_max
+    img_container.radius_width_err = np.array([box.fitting_error['radius_width'] for box in boxes])/polar_shape[1]*q_abs_max
+    img_container.angle_err = np.array([box.fitting_error['angle'] for box in boxes])/polar_shape[0]*ang_deg_max
+    img_container.angle_width_err = np.array([box.fitting_error['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
 
     img_container.qzqxyboxes, img_container.qzqxyboxes_err = compute_qzqxy_with_error(
         img_container.radius, img_container.radius_err, img_container.angle, img_container.angle_err)
