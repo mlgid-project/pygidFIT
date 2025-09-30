@@ -8,6 +8,8 @@ from pygidfit.process_scans import process_data_from_file, process_data_img_cont
 
 def run_scans(
         filename=None,
+        entry = None,
+        frame_num = None,
         batch_size=10,
         crit_angle=0,
         polar_shape=np.array([512, 1024]),
@@ -31,6 +33,8 @@ def run_scans(
 
     process_data_from_file(
         filename,
+        entry,
+        frame_num,
         batch_size,
         crit_angle,
         polar_shape,

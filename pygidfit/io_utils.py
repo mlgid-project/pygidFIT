@@ -79,9 +79,9 @@ class DataSaver:
                 results_err_array = get_results_err_array(self.img_container_list[i])
                 group_name = list(analysis.keys())[folder_num]
 
-                fitted_path = f"{group_name}/fitted_peaks"
-                detected_path = f"{group_name}/detected_peaks"
-                errors_path = f"{group_name}/fitted_peaks_errors"
+                fitted_path = f"{self.entry}/data/analysis/{group_name}/fitted_peaks"
+                detected_path = f"{self.entry}/data/analysis/{group_name}/detected_peaks"
+                errors_path = f"{self.entry}/data/analysis/{group_name}/fitted_peaks_errors"
 
                 if fitted_path in f:
                     if detected_path not in f:

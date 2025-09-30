@@ -199,7 +199,7 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
 
 
 
-def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
+def fit_data(data, frame_num, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
         clustering_distance_peaks, clustering_distance_rings,  clustering_extend, debug, multiprocessing):
 
     ## boxes preprocessing
@@ -217,6 +217,9 @@ def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
     ## image fitting
     img_container_list = []
     for i in range(data.raw_giwaxs.shape[0]):
+        if frame_num is not None:
+            if i!=frame_num:
+                continue
         peaks_poll = fit_single_image(data.raw_giwaxs[i], data.ai[i], crit_angle, data.wavelength,
                          data.q_xy, data.q_z, data.boxes[i],
                          yy, zz, data.clusters[i], peaks_pool, debug, multiprocessing,
@@ -323,7 +326,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     return img_container
 
 
-def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
+def process_data_from_file(filename, entry = None, frame_num = None, batch_size = 10, crit_angle = 0, polar_shape = np.array([512,1024]),
                            ratio_threshold = 50, clustering_distance_peaks = 7, clustering_distance_rings = 40, clustering_extend = 2,
                            use_poll = False, debug = False, multiprocessing = False):
     data_loaded = DataLoader(filename, batch_size=batch_size)
@@ -337,6 +340,9 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
 
     if len(entry_list) != 0:
         for i in range(len(entry_list)):
+            if entry is not None:
+                if entry_list[i]!=entry:
+                    continue
             if debug:
                 print("Current entry", entry_list[i])
             while not entry_done:
@@ -351,7 +357,7 @@ def process_data_from_file(filename, batch_size = 10, crit_angle = 0, polar_shap
                 if True:
                     yy, zz, ang_deg_max = _get_polar_grid(data.raw_giwaxs.shape[1:], polar_shape, [0,0])
                 data.ang_deg_max = ang_deg_max
-                img_container_list, peaks_poll = fit_data(data, crit_angle, yy, zz, peaks_poll,
+                img_container_list, peaks_poll = fit_data(data, frame_num, crit_angle, yy, zz, peaks_poll,
                                                           ratio_threshold,
                                                           clustering_distance_peaks,
                                                           clustering_distance_rings,

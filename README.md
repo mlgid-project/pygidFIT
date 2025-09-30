@@ -24,6 +24,8 @@ import pygidfit
 import numpy as np
 filename = r'..\tests\example.h5'
 pygidfit.run_scans(filename,
+    entry = None,                       # if want to analyse only one entry, specify the entry name
+    frame_num=None,                     # if want to analyse only one image, specify the image number
     crit_angle = 1,                     # critical angle to shift the sample horizon (in degrees)
     ratio_threshold=50,                 # h/w ratio for boxes classification  
     clustering_distance_rings=10,       # distance for ring clustering (in pixels)
