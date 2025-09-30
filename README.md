@@ -21,16 +21,18 @@ pip install -e .
 
 ```python
 import pygidfit
+import numpy as np
 filename = r'..\tests\example.h5'
-# Run scans on the given file
-# crit_angle: critical angle for the material
-# multiprocessing: whether to use multiprocessing
-# use_pool: whether use pool of peaks
-pygidfit.run_scans(
-    filename,
-    crit_angle=0.1,
-    multiprocessing=False,
-    use_pool = False,
+pygidfit.run_scans(filename,
+    crit_angle = 1,                     # critical angle to shift the sample horizon (in degrees)
+    ratio_threshold=50,                 # h/w ratio for boxes classification  
+    clustering_distance_rings=10,       # distance for ring clustering (in pixels)
+    clustering_distance_peaks = 10,     # distance for peak clustering (in pixels)
+    clustering_extend= 2,               # number of pixels to extend the cluster size
+    use_pool = False,                   # whether to use pool of peaks
+    debug = True,                       # whether to plot fitting result and parameters
+    multiprocessing = False,            # not recommended
+    polar_shape = np.array([512,1024])  # shape of the converted polar image 
 )
 ```
 

@@ -100,10 +100,10 @@ def cluster_rings(ring_indices, centers, boxes, r, extend):
         cluster_ring_indices = np.array(ring_indices)[local_idx]
         cluster_boxes = boxes[cluster_ring_indices]
 
-        xmin = np.min(cluster_boxes[:, 0]) - extend * 5
-        ymin = np.min(cluster_boxes[:, 1]) - extend * 5
-        xmax = np.max(cluster_boxes[:, 2]) + extend * 5
-        ymax = np.max(cluster_boxes[:, 3]) + extend * 5
+        xmin = np.min(cluster_boxes[:, 0]) - extend
+        ymin = np.min(cluster_boxes[:, 1]) - extend
+        xmax = np.max(cluster_boxes[:, 2]) + extend
+        ymax = np.max(cluster_boxes[:, 3]) + extend
 
         w_box = min((xmax - xmin), r * 0.2)
         xmin -= w_box
