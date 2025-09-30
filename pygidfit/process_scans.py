@@ -228,7 +228,7 @@ def fit_data(data, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
     return img_container_list, peaks_poll
 
 
-def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg):
+def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg, qz_max, qxy_max):
     """
     Computes qx and qy from radius and angle (in degrees) and propagates errors.
 
@@ -240,17 +240,23 @@ def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg):
     sigma_theta = np.deg2rad(sigma_angle_deg)
 
     # coordinates
-    qx = radius * np.sin(theta)
-    qy = radius * np.cos(theta)
+    qz = radius * np.sin(theta)
+    qxy = radius * np.cos(theta)
 
     # error propagation
-    sigma_qx = np.sqrt((np.sin(theta) * sigma_radius) ** 2 + (radius * np.cos(theta) * sigma_theta) ** 2)
-    sigma_qy = np.sqrt((np.cos(theta) * sigma_radius) ** 2 + (radius * np.sin(theta) * sigma_theta) ** 2)
+    sigma_qz = np.sqrt((np.sin(theta) * sigma_radius) ** 2 + (radius * np.cos(theta) * sigma_theta) ** 2)
+    sigma_qxy = np.sqrt((np.cos(theta) * sigma_radius) ** 2 + (radius * np.sin(theta) * sigma_theta) ** 2)
+    sigma_array = np.array([sigma_qz, sigma_qxy])
 
-    q_array = np.array([qx, qy])
-    sigma_array = np.array([sigma_qx, sigma_qy])
+    qz = np.minimum(qz, qz_max)
+    qxy = np.sqrt(radius ** 2 - qz ** 2)
+    qxy = np.minimum(qxy, qxy_max)
+    qz = np.sqrt(radius ** 2 - qxy ** 2)
 
-    return q_array, sigma_array
+    angle_deg = np.rad2deg(np.arctan2(qz, qxy))
+
+    q_array = np.array([qz, qxy])
+    return q_array, sigma_array, radius, angle_deg
 
 def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visibility, score, wavelength):
 
@@ -261,9 +267,10 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     img_container.C = np.array([box.fitting_result['C'] for box in boxes])
     img_container.theta = np.array([box.fitting_result['theta'] for box in boxes])
 
-    radius_arr = np.array([box.fitting_result['radius'] for box in boxes])/polar_shape[1]*q_abs_max
+    radius_arr = np.array([box.fitting_result['radius'] for box in boxes])/polar_shape[1] * q_abs_max
     angle_arr = np.array([box.fitting_result['angle'] for box in boxes]) / polar_shape[0] * ang_deg_max
     angle_arr = np.nan_to_num(angle_arr, nan=45)
+    angle_arr[angle_arr < 5] = 0
 
 
     def adjust_missing_wedge(wavelength, q_abs, phi):
@@ -299,8 +306,9 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     img_container.angle_err = np.array([box.fitting_error['angle'] for box in boxes])/polar_shape[0]*ang_deg_max
     img_container.angle_width_err = np.array([box.fitting_error['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
 
-    img_container.qzqxyboxes, img_container.qzqxyboxes_err = compute_qzqxy_with_error(
-        img_container.radius, img_container.radius_err, img_container.angle, img_container.angle_err)
+    img_container.qzqxyboxes, img_container.qzqxyboxes_err, img_container.radius, img_container.angle = compute_qzqxy_with_error(
+        img_container.radius, img_container.radius_err, img_container.angle, img_container.angle_err,
+        np.nanmax(q_z), np.nanmax(q_xy))
     # img_container.qzqxyboxes = np.array([img_container.radius * np.sin(np.deg2rad(img_container.angle)),
     #                                      img_container.radius * np.cos(np.deg2rad(img_container.angle))])
 

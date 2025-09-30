@@ -180,9 +180,14 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
                 if debug and peaks_pool is not None:
                     print("Couldn't find previous peak")
                 amp, xo, yo, sigma_x, sigma_y = compute_initial_params(sub, x0, y0, x1, y1, debug)
-
-        if False: #debug
-            print("amp, xo, yo, sigma_x, sigma_y ", amp, xo, yo, sigma_x, sigma_y )
+        # go to the sample horizon
+        if y0 < h/90*5:
+            y0 = 0
+            vary_y0 = False
+        else:
+            vary_y0 = True
+        if debug:
+            print("amp, xo, yo, sigma_x, sigma_y, vary_y0 ", amp, xo, yo, sigma_x, sigma_y, vary_y0)
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
         x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
         y_bound_min = np.clip(y0 - (y1 - y0)/2 , ymin, ymax)
@@ -191,7 +196,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
         # Add Gaussian parameters to the model
         params.add(f'g{i}_amplitude', value=amp, min=0)
         params.add(f'g{i}_radius', value=xo, min=x_bound_min, max=x_bound_max)
-        params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max)
+        params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
         params.add(f'g{i}_radius_width', value=sigma_x, min=(x1-x0)/8, max = (x1-x0)/2)
         params.add(f'g{i}_angle_width', value=sigma_y, min=(y1-y0)/8, max = (y1-y0)/2)
         params.add(f'g{i}_theta', value=0, vary=False)
@@ -500,6 +505,15 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
             sigma_x = max((x1 - x0) /2/2.355, 1.0)  # FWHM to sigma conversion
             sigma_y = max((y1 - y0) /2/2.355, 1.0)
 
+        # go to the sample horizon
+        if y0 < h/90*5:
+            y0 = 0
+            vary_y0 = False
+        else:
+            vary_y0 = True
+        if debug:
+            print("amp, xo, yo, sigma_x, sigma_y, vary_y0 ", amp, xo, yo, sigma_x, sigma_y, vary_y0)
+
         x_bound_min = np.clip(x0 - (x1 - x0)/2, xmin, xmax)
         x_bound_max = np.clip(x1 + (x1 - x0)/2 , xmin, xmax)
         y_bound_min = np.clip(y0 - (y1 - y0)/2 , ymin, ymax)
@@ -508,7 +522,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         # Add Gaussian parameters to the model
         params.add(f'g{i}_amplitude', value=amp, min=0)
         params.add(f'g{i}_radius', value=xo, min=x_bound_min, max=x_bound_max)
-        params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max)
+        params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
         params.add(f'g{i}_radius_width', value=sigma_x, min=(x1 - x0) / 8, max=(x1 - x0) / 2)
         params.add(f'g{i}_angle_width', value=sigma_y, min=(y1 - y0) / 8, max=(y1 - y0) / 2)
         params.add(f'g{i}_theta', value=0, vary=False)

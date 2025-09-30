@@ -39,12 +39,16 @@ class DetectedPeaks:
             self.frame_key = list(self.analysis.keys())[self.frame_num]
             frame_group = self.analysis[self.frame_key]
             if "detected_peaks" in frame_group:
-                ds = frame_group["detected_peaks"]
-                names = ds.dtype.names
-                self.data = {name: ds[name] for name in names}
-                self.__dict__.update(self.data)
+                peak_name = "detected_peaks"
+            elif "fitted_peaks" in frame_group:
+                peak_name = "fitted_peaks"
             else:
                 raise ValueError("No detected peaks found")
+            ds = frame_group[peak_name]
+            names = ds.dtype.names
+            self.data = {name: ds[name] for name in names}
+            self.__dict__.update(self.data)
+
         # for key in frame_group['detected_peaks'].keys():
         #     self.data[key] = frame_group[f'detected_peaks/{key}'][()]
         # self.__dict__.update(self.data)
@@ -73,13 +77,20 @@ class DataSaver:
                 folder_num = i+self.batch_num*self.batch_size
                 results_array = get_results_array(self.img_container_list[i])
                 results_err_array = get_results_err_array(self.img_container_list[i])
-                group = analysis[list(analysis.keys())[folder_num]]
-                if 'fitted_peaks' in group:
-                    del group['fitted_peaks']
-                group.create_dataset('fitted_peaks', data=results_array, dtype=pygid_results_dtype)
-                if 'fitted_peaks_errors' in group:
-                    del group['fitted_peaks_errors']
-                group.create_dataset('fitted_peaks_errors', data=results_err_array, dtype=pygid_results_dtype)
+                group_name = list(analysis.keys())[folder_num]
+
+                fitted_path = f"{group_name}/fitted_peaks"
+                detected_path = f"{group_name}/detected_peaks"
+                errors_path = f"{group_name}/fitted_peaks_errors"
+
+                if fitted_path in f:
+                    if detected_path not in f:
+                        f.copy(fitted_path, detected_path)
+                    del f[fitted_path]
+                f.create_dataset(fitted_path, data=results_array, dtype=pygid_results_dtype)
+                if errors_path in f:
+                    del f[errors_path]
+                f.create_dataset(errors_path, data=results_err_array, dtype=pygid_results_dtype)
 
 
 
