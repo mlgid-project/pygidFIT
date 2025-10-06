@@ -25,6 +25,7 @@ dependencies = [
     "opencv-python",
     "numba",
     "shapely",
+    "networkx",
 ]
 
 [project.optional-dependencies]
