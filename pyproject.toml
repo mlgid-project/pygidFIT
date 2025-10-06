@@ -24,6 +24,7 @@ dependencies = [
     "lmfit",
     "opencv-python",
     "numba",
+    "shapely",
 ]
 
 [project.optional-dependencies]

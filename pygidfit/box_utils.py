@@ -54,19 +54,24 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
     radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 1) #2
 
 
-    radius1 = np.round(radius1_q / q_abs_max * polar_shape[1]) - 1
-    radius2 = np.round(radius2_q / q_abs_max * polar_shape[1]) + 1
+    radius1 = np.round(radius1_q / q_abs_max * polar_shape[1])
+    radius2 = np.round(radius2_q / q_abs_max * polar_shape[1])
 
-    theta1_deg = detected_peaks.angle - (detected_peaks.angle_width / 2)
-    theta2_deg = detected_peaks.angle + (detected_peaks.angle_width / 2)
-    theta1 = np.round(theta1_deg / 90 * polar_shape[0]).astype(int) - 1
-    theta2 = np.round(theta2_deg / 90 * polar_shape[0]).astype(int) + 1
+    theta1_deg = detected_peaks.angle - (np.abs(detected_peaks.angle_width) / 2)
+    theta2_deg = detected_peaks.angle + (np.abs(detected_peaks.angle_width) / 2)
+    theta1 = np.round(theta1_deg / 90 * polar_shape[0]).astype(int)
+    theta2 = np.round(theta2_deg / 90 * polar_shape[0]).astype(int)
 
     # to make boxes inside the img
     radius1 = np.clip(radius1, 0, polar_shape[1])
     radius2 = np.clip(radius2, 0, polar_shape[1])
     theta1 = np.clip(theta1, 0, polar_shape[0])
     theta2 = np.clip(theta2, 0, polar_shape[0])
+
+    for i in range(len(theta1)):
+        if theta1[i] == theta2[i]:
+            print(theta1[i], theta2[i], detected_peaks.angle[i], detected_peaks.angle_width[i])
+            raise
 
 
     boxes = np.stack([radius1,

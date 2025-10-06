@@ -38,7 +38,7 @@ def calc_smpl_hor(ai, crit_angle, wavelength):
 
 def img_preprocessing(img,  ai, crit_angle, wavelength, q_z):
     ## cut sample horiz
-    crit_angle = np.radians(crit_angle)
+    # crit_angle = np.radians(crit_angle)
     q_z_critical = calc_smpl_hor(ai, crit_angle, wavelength)
     mask = q_z < q_z_critical
     img[mask, :] = np.nan
@@ -116,6 +116,7 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
         xmin, ymin, xmax, ymax = map(int, box.limits)
         width = xmax - xmin
         height = ymax - ymin
+
         rect = Rectangle(
             (xmin, ymin), width, height,
             linewidth=1.5, edgecolor='red', facecolor='none'
@@ -142,6 +143,8 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
         polar_img = polar_conversion(img, yy, zz, cv2.INTER_LINEAR)
 
 
+
+
     if debug:
         fig, axes = plt.subplots(figsize=(6, 6))
         norm = LogNorm(vmin=np.nanmin(img[img > 0]), vmax=np.nanmax(img))
@@ -154,6 +157,9 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
                       theta1=th1, theta2=th2, color='red', linewidth=2)
             axes.add_patch(arc)
         plt.show()
+
+
+
 
     ## polar image
 
@@ -171,6 +177,12 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
 
 
     time0 = time.time()
+
+    max_bbox_size_ring = max([cluster.bbox_length if cluster.type == 'rings' else 0 for cluster in clusters]+[0])
+    max_bbox_size_peaks = max([cluster.bbox_length if cluster.type == 'peaks' or cluster.type == 'both'
+                              else 0 for cluster in clusters]+[0])
+    # print("max_bbox_size_ring", max_bbox_size_ring)
+    # print("max_bbox_size_peaks", max_bbox_size_peaks)
 
     if multiprocessing:
         fit_clusters_multiprocessing(clusters, boxes, polar_img, masked_img, debug=debug)
@@ -191,6 +203,13 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     if peaks_pool is not None:
         peaks_pool = boxes
 
+    # import pickle
+    # with open(r"D:\PhD\X-ray data\polar_img.pkl", "wb") as f:
+    #     pickle.dump(polar_img, f)
+
+    # import pickle
+    # with open(r"D:\PhD\X-ray data\boxes.pkl", "wb") as f:
+    #     pickle.dump(boxes, f)
 
     time1 = time.time()
     if debug:
@@ -216,6 +235,7 @@ def fit_data(data, frame_num, crit_angle,  yy, zz, peaks_pool, ratio_threshold,
         data.clusters.append(cluster_boxes_by_centers(data.boxes[i], clustering_distance_peaks, clustering_distance_rings, clustering_extend))
     ## image fitting
     img_container_list = []
+
     for i in range(data.raw_giwaxs.shape[0]):
         if frame_num is not None:
             if i!=frame_num:
