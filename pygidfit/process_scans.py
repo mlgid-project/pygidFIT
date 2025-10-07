@@ -204,11 +204,11 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
         peaks_pool = boxes
 
     # import pickle
-    # with open(r"D:\PhD\X-ray data\polar_img.pkl", "wb") as f:
+    # with open(r"D:\PhD\X-ray data\polar_img_entry_HATCN.pkl", "wb") as f:
     #     pickle.dump(polar_img, f)
-
+    #
     # import pickle
-    # with open(r"D:\PhD\X-ray data\boxes.pkl", "wb") as f:
+    # with open(r"D:\PhD\X-ray data\boxes_entry_HATCN.pkl", "wb") as f:
     #     pickle.dump(boxes, f)
 
     time1 = time.time()
@@ -363,7 +363,7 @@ def process_data_from_file(filename, entry = None, frame_num = None, batch_size 
             if entry is not None:
                 if entry_list[i]!=entry:
                     continue
-            if debug:
+            if debug: #True
                 print("Current entry", entry_list[i])
             while not entry_done:
                 data_loaded = DataLoader(filename=filename,

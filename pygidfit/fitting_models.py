@@ -256,18 +256,20 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
     time2 = time.time()
 
     if debug:
-
-        plot_peak_cluster_debug(
-            roi=roi,
-            xmin=xmin,
-            ymin=ymin,
-            cluster=cluster,
-            boxes=boxes,
-            params=params,
-            result=result,
-            time_preproc=(time1 - time0),
-            time_fit=(time2 - time1)
-        )
+        if params is not None:
+            plot_peak_cluster_debug(
+                roi=roi,
+                xmin=xmin,
+                ymin=ymin,
+                cluster=cluster,
+                boxes=boxes,
+                params=params,
+                result=result,
+                time_preproc=(time1 - time0),
+                time_fit=(time2 - time1)
+            )
+        else:
+            print("Parameters not available")
 
     return list_to_return
 
@@ -575,7 +577,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
     time2 = time.time()
 
     if debug:
-        plot_peak_on_ring_cluster_debug_four(
+        plot_peak_on_ring_cluster_debug(
             X=X,
             Y=Y,
             roi=roi,
@@ -606,177 +608,6 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
     }
 
     return list_to_return
-
-
-def plot_peak_on_ring_cluster_debug_four(X, Y, roi, X_flat, Y_flat, xmin, ymin,
-                   model, result, peak_indices, ring_indices,
-                   cluster, boxes, params, time_preproc, time_fit,
-                   visualize_fit_3d_func):
-    """
-    Visualizes the ROI with bounding boxes for peaks and rings,
-    along with initial guesses and fitted Gaussian ellipses.
-
-    Parameters
-    ----------
-    X, Y : np.ndarray
-        Meshgrid arrays for the ROI.
-    roi : np.ndarray
-        Region of Interest (image section).
-    X_flat, Y_flat : np.ndarray
-        Flattened coordinates for model evaluation.
-    xmin, ymin : float
-        ROI offset relative to the original image.
-    model : lmfit.Model
-        The fitted model.
-    result : lmfit.ModelResult
-        Fit results containing parameters.
-    peak_indices : list[int]
-        Indices of detected peaks.
-    ring_indices : list[int]
-        Indices of detected rings.
-    cluster : object
-        Cluster object containing `.indices`.
-    boxes : list
-        List of box objects (with `.limits` attribute).
-    params : lmfit.Parameters
-        Initial Gaussian parameters.
-    time_preproc, time_fit : float
-        Preprocessing and fitting times in seconds.
-    visualize_fit_3d_func : callable
-        Function for 3D visualization, signature: (X, Y, roi, Z_fit_full).
-    """
-    # Model evaluation
-    Z_fit_valid = model.eval(params=result.params, x=X_flat, y=Y_flat)
-    Z_fit_full = np.full_like(roi, np.nan, dtype=np.float64)
-    Z_fit_full[np.isfinite(roi)] = Z_fit_valid
-
-    # Optional 3D visualization
-   # visualize_fit_3d_func(X, Y, roi, Z_fit_full)
-
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 8))
-    norm = LogNorm(vmin=np.nanmin(roi[roi > 0]), vmax=np.nanmax(roi))
-    xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
-    axes[0,0].imshow(roi, cmap='inferno', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
-    axes[1,1].imshow(roi, cmap='inferno', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
-    axes[0,1].imshow(roi, cmap='inferno', origin='lower', norm=norm, extent=[xmin, xmax, ymin, ymax])
-    # Peak bounding boxes
-    for i in peak_indices:
-        box = boxes[i]
-        x = box.limits[0] # - xmin
-        y = box.limits[1] #- ymin
-        w = box.limits[2] - box.limits[0]
-        h = box.limits[3] - box.limits[1]
-        rect = Rectangle((x, y), w, h, linewidth=5, edgecolor='black',
-                         facecolor='None', alpha=1)
-        axes[0,0].add_patch(rect)
-
-    for i in peak_indices:
-        box = boxes[i]
-        x = box.limits[0] # - xmin
-        y = box.limits[1] #- ymin
-        w = box.limits[2] - box.limits[0]
-        h = box.limits[3] - box.limits[1]
-        rect = Rectangle((x, y), w, h, linewidth=5, edgecolor='black',
-                         facecolor='black', alpha=1)
-        axes[0,1].add_patch(rect)
-
-
-    # Ring bounding boxes
-    for i in ring_indices:
-        box = boxes[i]
-        x = box.limits[0] # box.limits[0] - xmin
-        y = ymin # box.limits[1] - ymin
-        w = box.limits[2] - box.limits[0]
-        h = ymax - ymin# box.limits[3] - box.limits[1]
-        rect = Rectangle((x, y), w, h, linewidth=5, edgecolor='white',
-                         facecolor='None', alpha=1, linestyle='--',
-                         label=f'ring box {i}')
-        axes[0,0].add_patch(rect)
-
-    # Ring bounding boxes
-    for i in ring_indices:
-        box = boxes[i]
-        x = box.limits[0] # box.limits[0] - xmin
-        y = ymin # box.limits[1] - ymin
-        w = box.limits[2] - box.limits[0]
-        h = ymax - ymin# box.limits[3] - box.limits[1]
-        rect = Rectangle((x, y), w, h, linewidth=5, edgecolor='white',
-                         facecolor='None', alpha=1, linestyle='--',
-                         label=f'ring box {i}')
-        axes[0,1].add_patch(rect)
-
-
-    axes[0,0].set_title("Cluster for ROIs " + str(cluster.indices))
-
-    # Initial Gaussian ellipses
-    for i, idx in enumerate(cluster.indices):
-        amp = params.get(f'g{i}_amplitude', None)
-        xo = params.get(f'g{i}_radius', None)
-        yo = params.get(f'g{i}_angle', None)
-        sigma_x = params.get(f'g{i}_radius_width', None)
-        sigma_y = params.get(f'g{i}_angle_width', None)
-
-        if None in [amp, xo, yo, sigma_x, sigma_y]:
-            continue
-
-        ellipse = Ellipse(
-            (xo.value, yo.value),
-            width=2 * sigma_x.value,
-            height=2 * sigma_y.value,
-            edgecolor='white',
-            facecolor='none',
-            linewidth=2,
-            alpha=1,
-            linestyle='--',
-            label=f'init peak {idx}'
-        )
-        theta = params.get(f'g{i}_theta', None)
-        if theta is not None:
-            ellipse.angle = np.degrees(theta.value)
-
-        axes[0,0].add_patch(ellipse)
-
-    # Fitted Gaussian ellipses
-    for i in range(len(peak_indices)):
-        try:
-            amp = result.params[f'g{i}_amplitude']
-            xo = result.params[f'g{i}_radius']
-            yo = result.params[f'g{i}_angle']
-            sigma_x = result.params[f'g{i}_radius_width']
-            sigma_y = result.params[f'g{i}_angle_width']
-            theta = result.params[f'g{i}_theta']
-        except KeyError:
-            continue
-
-        ellipse_fit = Ellipse(
-            (xo.value, yo.value),
-            width=2 * sigma_x.value * 2.355,
-            height=2 * sigma_y.value * 2.355,
-            angle=np.degrees(theta.value),
-            edgecolor='springgreen',
-            facecolor='none',
-            linewidth=3,
-            alpha=1,
-            linestyle='--',
-            label=f'fit peak {cluster.indices[i]}'
-        )
-        axes[1,1].add_patch(ellipse_fit)
-
-
-
-
-    axes[0,0].set_aspect('auto')
-    axes[0,0].legend()
-    axes[1,1].set_aspect('auto')
-    axes[1,1].legend()
-    axes[0,1].set_aspect('auto')
-    axes[0,1].legend()
-    axes[1,0].set_aspect('auto')
-    axes[1,0].legend()
-    plt.show()
-
-    print(f"Preprocessing took {time_preproc * 1000:.2f} ms")
-    print(f"Fitting took {time_fit * 1000:.2f} ms")
 
 
 
@@ -817,6 +648,7 @@ def plot_peak_on_ring_cluster_debug(X, Y, roi, X_flat, Y_flat, xmin, ymin,
     visualize_fit_3d_func : callable
         Function for 3D visualization, signature: (X, Y, roi, Z_fit_full).
     """
+
     # Model evaluation
     Z_fit_valid = model.eval(params=result.params, x=X_flat, y=Y_flat)
     Z_fit_full = np.full_like(roi, np.nan, dtype=np.float64)

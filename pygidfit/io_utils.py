@@ -170,7 +170,7 @@ class DataLoader:
             folder_num = len(analysis.keys())
             ind1 = self.batch_num * self.batch_size
             ind2 = min((self.batch_num + 1) * self.batch_size, folder_num)
-            if self.debug:
+            if self.debug: #True
                 print("Loading frame number: from ", ind1, " to ",ind2)
             if ind2 == folder_num:
                 self.entry_done = True
