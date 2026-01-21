@@ -203,14 +203,6 @@ def fit_single_image(img, ai, crit_angle, wavelength,  q_xy, q_z, boxes,  yy, zz
     if peaks_pool is not None:
         peaks_pool = boxes
 
-    # import pickle
-    # with open(r"D:\PhD\X-ray data\polar_img_entry_HATCN.pkl", "wb") as f:
-    #     pickle.dump(polar_img, f)
-    #
-    # import pickle
-    # with open(r"D:\PhD\X-ray data\boxes_entry_HATCN.pkl", "wb") as f:
-    #     pickle.dump(boxes, f)
-
     time1 = time.time()
     if debug:
         print(f"image fitting took {(time1 - time0) * 1000} ms")
@@ -293,7 +285,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy , q_z, visi
     radius_arr = np.array([box.fitting_result['radius'] for box in boxes])/polar_shape[1] * q_abs_max
     angle_arr = np.array([box.fitting_result['angle'] for box in boxes]) / polar_shape[0] * ang_deg_max
     angle_arr = np.nan_to_num(angle_arr, nan=45)
-    angle_arr[angle_arr < 5] = 0
+    angle_arr[angle_arr < 2] = 0
 
 
     def adjust_missing_wedge(wavelength, q_abs, phi):
