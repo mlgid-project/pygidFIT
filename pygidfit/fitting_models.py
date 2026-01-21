@@ -4,16 +4,15 @@ from lmfit.models import LinearModel
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from matplotlib.patches import Rectangle, Ellipse
-from numba import njit
+from numba import jit
 from multiprocessing import Pool, shared_memory
 import time
+from math import sin, cos, exp
+import numexpr as ne
 
 from pygidfit.box_utils import (
     make_box_attributes,
 )
-
-def gaussian_height(x, radius, amplitude, radius_width):
-    return amplitude * np.exp(-0.5 * ((x - radius) / radius_width) ** 2)
 
 def safe_center_of_mass(arr):
     mask = np.isfinite(arr)
@@ -27,27 +26,31 @@ def safe_center_of_mass(arr):
     com_x = np.nansum(x * arr) / norm
     return com_y, com_x
 
-@njit
+# @jit(nopython=True, fastmath=True)
 def two_d_rotated_gaussian(x, y, amp, xo, yo, sigma_x, sigma_y, theta):
-    x0 = float(xo)
-    y0 = float(yo)
+    x0 = xo
+    y0 = yo
 
-    if theta == 0.0:
-        a = 1.0 / (2.0 * sigma_x ** 2)
-        b = 0.0
-        c = 1.0 / (2.0 * sigma_y ** 2)
-    else:
-        cos_t = np.cos(theta)
-        sin_t = np.sin(theta)
-        a = (cos_t ** 2) / (2 * sigma_x ** 2) + (sin_t ** 2) / (2 * sigma_y ** 2)
-        b = -np.sin(2 * theta) / (4 * sigma_x ** 2) + np.sin(2 * theta) / (4 * sigma_y ** 2)
-        c = (sin_t ** 2) / (2 * sigma_x ** 2) + (cos_t ** 2) / (2 * sigma_y ** 2)
+    cos_t = cos(theta)
+    sin_t = sin(theta)
 
-    return amp * np.exp(-(a * (x - x0) ** 2 + 2.0 * b * (x - x0) * (y - y0) + c * (y - y0) ** 2))
+    sin2 = 2.0 * sin_t * cos_t
 
+    a = (cos_t * cos_t) / (2.0 * sigma_x * sigma_x) + (sin_t * sin_t) / (2.0 * sigma_y * sigma_y)
+    b = -sin2 / (4.0 * sigma_x * sigma_x) + sin2 / (4.0 * sigma_y * sigma_y)
+    c = (sin_t * sin_t) / (2.0 * sigma_x * sigma_x) + (cos_t * cos_t) / (2.0 * sigma_y * sigma_y)
+    dx = x - x0
+    dy = y - y0
+    # out = np.empty_like(x)
+    # for i in range(x.size):
+    #     val = a * dx.flat[i] * dx.flat[i] + 2.0 * b * dx.flat[i] * dy.flat[i] + c * dy.flat[i] * dy.flat[i]
+    #     out.flat[i] = amp * exp(-val)
+    out = ne.evaluate("amp * exp(-(a*dx*dx + 2*b*dx*dy + c*dy*dy))")
+    return out
+
+@jit(nopython=True, fastmath=True)
 def sum_of_gaussians_and_plane(x, y, param_array, n):
     z = np.zeros_like(x)
-
     for i in range(n):
         base = i * 6
         amp = param_array[base]
@@ -57,30 +60,47 @@ def sum_of_gaussians_and_plane(x, y, param_array, n):
         sigy = param_array[base + 4]
         theta = param_array[base + 5]
 
-        if np.isnan([amp, xo, yo, sigx, sigy, theta]).any():
-            continue
+        cos_t = cos(theta)
+        sin_t = sin(theta)
+        sin2 = 2.0 * sin_t * cos_t
 
-        z += two_d_rotated_gaussian(x, y, amp, xo, yo, sigx, sigy, theta)
+        a = (cos_t * cos_t) / (2.0 * sigx * sigx) + (sin_t * sin_t) / (2.0 * sigy * sigy)
+        b = -sin2 / (4.0 * sigx * sigx) + sin2 / (4.0 * sigy * sigy)
+        c = (sin_t * sin_t) / (2.0 * sigx * sigx) + (cos_t * cos_t) / (2.0 * sigy * sigy)
 
-    a = param_array[n * 6] if n * 6 < len(param_array) else 0
-    b = param_array[n * 6 + 1] if n * 6 + 1 < len(param_array) else 0
-    c = param_array[n * 6 + 2] if n * 6 + 2 < len(param_array) else 0
-    z += a * x + b * y + c
+        for k in range(x.size):
+            dx = x.flat[k] - xo
+            dy = y.flat[k] - yo
+            z.flat[k] += amp * exp(-(a*dx*dx + 2*b*dx*dy + c*dy*dy))
+
+    idx_plane = n * 6
+    a = param_array[idx_plane] if idx_plane < param_array.size else 0.0
+    b = param_array[idx_plane + 1] if idx_plane + 1 < param_array.size else 0.0
+    c = param_array[idx_plane + 2] if idx_plane + 2 < param_array.size else 0.0
+
+    for k in range(x.size):
+        z.flat[k] += a * x.flat[k] + b * y.flat[k] + c
 
     return z
 
 def build_sum_gaussians_wrapper(n):
     def model_func(x, y, **params):
-        param_list = []
+        param_array = np.empty(n*6 + 3, dtype=np.float64)
+        pos = 0
+
         for i in range(n):
-            for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
-                param_list.append(params.get(f'g{i}_{key}', np.nan))
-        param_list.extend([
-            params.get('A', np.nan),
-            params.get('B', np.nan),
-            params.get('C', np.nan)
-        ])
-        param_array = np.array(param_list, dtype=np.float64)
+            param_array[pos]   = params[f'g{i}_amplitude']
+            param_array[pos+1] = params[f'g{i}_radius']
+            param_array[pos+2] = params[f'g{i}_angle']
+            param_array[pos+3] = params[f'g{i}_radius_width']
+            param_array[pos+4] = params[f'g{i}_angle_width']
+            param_array[pos+5] = params[f'g{i}_theta']
+            pos += 6
+
+        param_array[pos]   = params['A']
+        param_array[pos+1] = params['B']
+        param_array[pos+2] = params['C']
+
         return sum_of_gaussians_and_plane(x, y, param_array, n)
     return model_func
 
@@ -89,9 +109,7 @@ def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     amp = np.nanmax(sub)
     if debug:
         print("compute_initial_params")
-    yy, xx = np.indices(sub.shape)
     com_y, com_x = safe_center_of_mass(sub-np.nanpercentile(sub, 10))
-    # com_y, com_x = np.unravel_index(np.nanargmax(sub), sub.shape)
     xo = x0 + com_x
     yo = y0 + com_y
     sigma_x = max((x1 - x0) / 2 , 1.0)
@@ -112,24 +130,18 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
     ymin = np.clip(ymin, 0, h)
     ymax = np.clip(ymax, 0, h)
 
-    if ymax == ymin:
-        print("ymax == ymin", ymax, ymin)
-
 
     # Extract ROI from the image
     roi = img[ymin:ymax, xmin:xmax]
-    y_len, x_len = roi.shape
-
+    mask = np.isfinite(roi)
     for (mxmin, mymin, mxmax, mymax) in cluster.mask_boxes:
         rxmin = int(np.clip(mxmin - xmin, 0, roi.shape[1]))
         rxmax = int(np.clip(mxmax - xmin, 0, roi.shape[1]))
         rymin = int(np.clip(mymin - ymin, 0, roi.shape[0]))
         rymax = int(np.clip(mymax - ymin, 0, roi.shape[0]))
-        roi[rymin:rymax, rxmin:rxmax] = np.nan
+        mask[rymin:rymax, rxmin:rxmax] = False
+    roi[~mask] = np.nan
 
-
-    # Create grid coordinates
-    # Y, X = np.mgrid[0:y_len, 0:x_len]
     Y, X = np.mgrid[ymin:ymax, xmin:xmax]
     data = roi.ravel()
     X_flat = X.ravel()
@@ -142,8 +154,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
 
     # Plane params
     a_bkg, b_bkg, c_bkg = 0, 0, np.nanpercentile(roi, 10)
-    # X_plane, Y_plane = np.mgrid[0:y_len, 0:x_len]
-    X_plane, Y_plane = np.mgrid[ymin: ymax, xmin: xmax]
+    X_plane, Y_plane = X, Y
     Z_plane = a_bkg * X_plane + b_bkg * Y_plane + c_bkg
     roi_corrected = roi - Z_plane
 
@@ -206,6 +217,9 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
         y_bound_min = np.clip(y0 - (y1 - y0)/4 , ymin, ymax)
         y_bound_max = np.clip(y1 + (y1 - y0)/4 , ymin, ymax) if not box.is_cut_qz else h
 
+        # if x_bound_min == x_bound_max:
+        #     print(x_bound_min, x_bound_max, x0, x1, xmin, xmax)
+        #     print(box.limits)
         # Add Gaussian parameters to the model
         params.add(f'g{i}_amplitude', value=amp, min=0)
         params.add(f'g{i}_radius', value=xo, min=x_bound_min, max=x_bound_max)
@@ -375,8 +389,8 @@ def plot_peak_cluster_debug(roi, xmin, ymin, cluster, boxes, params, result, tim
     print(f"Fitting took {time_fit * 1000:.2f} ms")
 
 def sum_of_gaussians_and_plane_and_1d(x, y, param_array, n, m):
-    # z = np.zeros_like(x)
     z = np.zeros_like(x, dtype=np.float64)
+
     # 2D rotated Gaussians
     for i in range(n):
         base = i * 6
@@ -386,14 +400,26 @@ def sum_of_gaussians_and_plane_and_1d(x, y, param_array, n, m):
         sigx = param_array[base + 3]
         sigy = param_array[base + 4]
         theta = param_array[base + 5]
-        z += two_d_rotated_gaussian(x, y, amp, xo, yo, sigx, sigy, theta)
+
+        cos_t = cos(theta)
+        sin_t = sin(theta)
+        sin2 = 2.0 * sin_t * cos_t
+
+        a = (cos_t * cos_t) / (2.0 * sigx * sigx) + (sin_t * sin_t) / (2.0 * sigy * sigy)
+        b = -sin2 / (4.0 * sigx * sigx) + sin2 / (4.0 * sigy * sigy)
+        c = (sin_t * sin_t) / (2.0 * sigx * sigx) + (cos_t * cos_t) / (2.0 * sigy * sigy)
+
+        dx = x - xo
+        dy = y - yo
+        z += ne.evaluate("amp * exp(-(a*dx*dx + 2*b*dx*dy + c*dy*dy))")
 
     # Plane background
     offset_plane = n * 6
-    a = param_array[offset_plane]
-    b = param_array[offset_plane + 1]
-    c = param_array[offset_plane + 2]
-    z += a * x + b * y + c
+    a_plane = param_array[offset_plane]
+    b_plane = param_array[offset_plane + 1]
+    c_plane = param_array[offset_plane + 2]
+
+    z += ne.evaluate("a_plane * x + b_plane * y + c_plane")
 
     # 1D Gaussians along x
     offset_1d = offset_plane + 3
@@ -402,17 +428,23 @@ def sum_of_gaussians_and_plane_and_1d(x, y, param_array, n, m):
         amp_1d = param_array[base]
         center_1d = param_array[base + 1]
         sigma_1d = param_array[base + 2]
-        z += amp_1d * np.exp(-0.5 * ((x - center_1d) / sigma_1d) ** 2)
+
+        dx = x - center_1d
+        inv2sigma2 = 0.5 / (sigma_1d * sigma_1d)
+        z += ne.evaluate("amp_1d * exp(-dx*dx*inv2sigma2)")
 
     return z
 
 def gaussian_height(x, radius, amplitude, radius_width):
-    return amplitude * np.exp(-0.5 * ((x - radius) / radius_width) ** 2)
+    dx = x - radius
+    inv2sigma2 = 0.5 / (radius_width * radius_width)
+    return ne.evaluate("amplitude * exp(-dx*dx*inv2sigma2)")
 
 
 def build_sum_gaussians_and_1d_wrapper(n, m):
     def model_func(x, y, **params):
         param_list = []
+
         # 2D Gaussians
         for i in range(n):
             for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
