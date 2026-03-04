@@ -28,5 +28,5 @@ def read_detected_peaks(nexus, entry, frame_num):
     entry_dict = nexus.entry_dict
     if not entry in entry_dict:
         raise KeyError(f"entry {entry} not in the file. The file structure: {entry_dict}")
-    return nexus.get_data(f"{group_name}/detected_peaks")
+    return nexus.get_dataset(f"{group_name}/detected_peaks")
 
