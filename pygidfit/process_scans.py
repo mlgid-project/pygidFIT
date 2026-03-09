@@ -361,7 +361,8 @@ class ProcessDataFromFile:
         # run fitting, update pool
         img_container_fit, self.peaks_pool = fit_data(polar_img, detected_peaks['radius'],  detected_peaks['radius_width'],
                                      detected_peaks['angle'],  detected_peaks['angle_width'],
-                                     wavelength, np.nanmax(q_xy), np.nanmax(q_z), self.ang_deg_max,
+                                     wavelength, np.nanmax(q_xy), np.nanmax(q_z), np.sqrt(np.nanmax(q_z)**2+np.nanmax(q_xy)**2),
+                                     self.ang_deg_max,
                                      self.ratio_threshold, self.clustering_distance_peaks,
                                      self.clustering_distance_rings, self.clustering_extend,
                                      self.debug, self.multiprocessing, self.peaks_pool)
@@ -375,7 +376,7 @@ class ProcessDataFromFile:
         save_fit(self.filename, entry, img_container_fit, frame_num)
 
 
-def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_xy_max, q_z_max, ang_deg_max = 90,
+def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_xy_max, q_z_max, q_abs_max, ang_deg_max = 90,
              ratio_threshold = 50, clustering_distance_peaks = 10,
              clustering_distance_rings = 10, clustering_extend = 2, debug = False, multiprocessing = False, peaks_pool = None):
     polar_shape = polar_img.shape
@@ -383,7 +384,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
     detected_peaks = DetectedPeaks(radius = radius, radius_width = radius_width, angle = angle, angle_width = angle_width)
     boxes = boxes_preprocessing(detected_peaks,
                         polar_shape, wavelength,
-                        np.sqrt(q_xy_max**2 + q_z_max**2), ratio_threshold,
+                        q_abs_max, ratio_threshold,
                         q_xy_max, q_z_max)
     # clustarization
     clusters = cluster_boxes_by_centers(boxes, clustering_distance_peaks, clustering_distance_rings, clustering_extend)
@@ -392,7 +393,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
     fit_single_image(polar_img, boxes, clusters, peaks_pool=peaks_pool, debug=debug,
                      multiprocessing=multiprocessing)
 
-    img_container = _data2container(boxes, polar_shape, np.sqrt(q_xy_max**2 + q_z_max**2), ang_deg_max,
+    img_container = _data2container(boxes, polar_shape, q_abs_max, ang_deg_max,
                                     q_xy_max, q_z_max,
                                     wavelength)
     if peaks_pool is None:
