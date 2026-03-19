@@ -83,7 +83,7 @@ pygidFIT is part of the machine learning pipeline for automated analysis of GID 
 
 The package is developed by Ekaterina Kneschaurek @ [the Schreiber Lab](https://github.com/schreiber-lab) with the help of [Vladimir Starostin](https://github.com/StarostinV) ([mlcolab](https://github.com/mlcolab)), [Constantin Völter](https://github.com/cvoelt).
 
-Current maintenance and development are led by [Ainur Abukaev](https://github.com/ainurabukaev99)ю
+Current maintenance and development are led by [Ainur Abukaev](https://github.com/ainurabukaev99).
 ## License
 
 MIT 
