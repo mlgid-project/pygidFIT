@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
 from typing import Tuple, Any
-
+import importlib.metadata
 import logging
+from datetime import datetime
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -372,8 +373,22 @@ class ProcessDataFromFile:
         img_container_fit.q_xy = q_xy
         img_container_fit.q_z = q_z
 
+        img_container_fit.metadata = _set_fitting_metadata(
+            clustering_distance_peaks=self.clustering_distance_peaks,
+            clustering_distance_rings=self.clustering_distance_rings,
+            clustering_extend=self.clustering_extend,
+            use_pool=self.use_pool)
+
         # save img_container_fit
         save_fit(self.filename, entry, img_container_fit, frame_num)
+
+def _set_fitting_metadata(**kwargs):
+    metadata = {'program': 'pygidfit',
+                'version': importlib.metadata.version("pygidfit"),
+                'date': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f'),
+                }
+    metadata.update(kwargs)
+    return metadata
 
 
 def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_xy_max, q_z_max, q_abs_max, ang_deg_max = 90,
