@@ -6,4 +6,4 @@ from pygidfit.process_scans import ProcessDataFromFile, fit_data
 __all__ = [
     "ProcessDataFromFile",
 ]
-__version__ = "0.1.0"
+__version__ = "0.1.1"
