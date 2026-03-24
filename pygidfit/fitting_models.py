@@ -117,7 +117,7 @@ def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     return amp, xo, yo, sigma_x, sigma_y
 
 
-def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
+def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, debug=False):
     """Fit a cluster of 2D Gaussian peaks with a background plane over the bounding box."""
     # Extract ROI bounding box from the cluster
     time0 = time.time()
@@ -226,7 +226,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, debug=False):
         params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
         params.add(f'g{i}_radius_width', value=sigma_x, min=(x1-x0)/8, max = (x1-x0)/2)
         params.add(f'g{i}_angle_width', value=sigma_y, min=(y1-y0)/8, max = (y1-y0)/2)
-        params.add(f'g{i}_theta', value=0, vary=True)
+        params.add(f'g{i}_theta', value=0, vary=not theta_fixed)
 
     # Add parameters for the background plane
     params.add('A', value=a_bkg, min = -0.1, max = 0.1)
@@ -480,7 +480,7 @@ def visualize_fit_3d(X, Y, Z_data, Z_fit):
 
 
 
-def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
+def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug = False):
     time0 = time.time()
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
     h, w = img.shape
@@ -573,7 +573,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, debug = False):
         params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
         params.add(f'g{i}_radius_width', value=sigma_x, min=(x1 - x0) / 8, max=(x1 - x0) / 2)
         params.add(f'g{i}_angle_width', value=sigma_y, min=(y1 - y0) / 8, max=(y1 - y0) / 2)
-        params.add(f'g{i}_theta', value=0, vary=False)
+        params.add(f'g{i}_theta', value=0, vary=not theta_fixed)
 
     # params.add('A', value=a, min = -1, max = 1)
     params.add('A', value=a, min=-0.1, max=0.1)
@@ -896,19 +896,19 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
 
 
 def process_cluster_args(args):
-    cluster, cluster_type, boxes, img, masked_img, debug = args
+    cluster, cluster_type, boxes, img, masked_img, theta_fixed, debug = args
     if cluster_type == 'rings':
         result = fit_ring_cluster(cluster, boxes, masked_img, None, debug)
     elif cluster_type == 'peaks':
-        result = fit_peak_cluster(cluster, boxes, img, None, debug)
+        result = fit_peak_cluster(cluster, boxes, img, None, theta_fixed, debug)
     elif cluster_type == 'both':
-        result = fit_peak_on_ring_cluster(cluster, boxes, img, None, debug)
+        result = fit_peak_on_ring_cluster(cluster, boxes, img, None, theta_fixed, debug)
     else:
         result = None
     return cluster, result
 
 ##### MP with shared memory
-def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=False):
+def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, theta_fixed, debug=False):
     cluster_types = ['rings', 'peaks', 'both']
 
     shm_img, shm_masked, img_shape, masked_shape, img_dtype, masked_dtype = init_shared_images(img, masked_img)
@@ -917,7 +917,7 @@ def fit_clusters_multiprocessing(clusters, boxes, img, masked_img, debug=False):
         for ctype in cluster_types:
             ctype_clusters = [(cluster, ctype, boxes,
                                shm_img.name, shm_masked.name,
-                               img_shape, masked_shape, img_dtype, masked_dtype,
+                               img_shape, masked_shape, img_dtype, masked_dtype, theta_fixed,
                                debug)
                               for cluster in clusters if cluster.type == ctype]
             if not ctype_clusters:
@@ -948,14 +948,14 @@ def init_shared_images(img, masked_img):
     return shm_img, shm_masked, img.shape, masked_img.shape, img.dtype, masked_img.dtype
 
 def process_cluster_shared(args):
-    cluster, ctype, boxes, shm_img_name, shm_masked_name, img_shape, masked_shape, img_dtype, masked_dtype, debug = args
+    cluster, ctype, boxes, shm_img_name, shm_masked_name, img_shape, masked_shape, img_dtype, masked_dtype, theta_fixed, debug = args
 
     existing_shm_img = shared_memory.SharedMemory(name=shm_img_name)
     existing_shm_masked = shared_memory.SharedMemory(name=shm_masked_name)
     img = np.ndarray(img_shape, dtype=img_dtype, buffer=existing_shm_img.buf)
     masked_img = np.ndarray(masked_shape, dtype=masked_dtype, buffer=existing_shm_masked.buf)
 
-    fitting_result = process_cluster_args((cluster, ctype, boxes, img, masked_img, debug))
+    fitting_result = process_cluster_args((cluster, ctype, boxes, img, masked_img, theta_fixed, debug))
 
     return fitting_result
 
