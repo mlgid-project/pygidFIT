@@ -4,8 +4,9 @@ A Python package for fitting Gaussian functions to GID (Grazing-Incidence Wide-A
 pygidFIT is part of the comprehensive machine learning pipeline for automated analysis of GID data. The focus is on multiparallel execution for real-time sequential processing at the synchrotron and neutron facilities.
 
 <p align="center">
-  <img src="docs/images/mlgid_logo_pygidfit.png" width="400" alt="pygidFIT">
+  <img src="https://raw.githubusercontent.com/mlgid-project/pygidFIT/main/docs/images/mlgid_logo_pygidfit.png" width="400" alt="pygid">
 </p>
+
 
 ## Installation
 ### Install using pip
@@ -30,17 +31,17 @@ pip install -e .
 ```python
 from pygidfit import ProcessDataFromFile
 
-filename = './notebooks/result.h5'
+filename = './example/BA2PbI4.h5'
 analysis = ProcessDataFromFile(
     filename,                           # NeXus file with converted images and detected boxes (after pygid and mlgidDETECT)
     entry='entry_0000',                 # Entry to process (if None, processes all entries)
     frame_num=0,                        # Image frame to process (if None, processes all frames)
-    crit_angle = 2,                     # Critical angle to shift the sample horizon (in degrees)
-    clustering_distance_rings = 10,     # Distance for ring clustering (in pixels)
-    clustering_distance_peaks = 10,     # Distance for segments clustering (in pixels)
+    crit_angle=2,                       # Critical angle to shift the sample horizon (in degrees)
+    clustering_distance_rings=10,       # Distance for ring clustering (in pixels)
+    clustering_distance_peaks=10,       # Distance for segments clustering (in pixels)
     clustering_extend=2,                # Number of pixels to extend the cluster size
-    use_pool = False,                   # Whether to use peak pool from the previous image 
-    debug = False,                      # Whether to plot fitting result and parameters)
+    use_pool=False,                     # Whether to use peak pool from the previous image 
+    debug=False,                        # Whether to plot fitting result and parameters)
     theta_fixed=True,                   # Whether to fix Gaussian tilt angle to 0° (azimuthal direction) during fitting. Default is True
 )
 ```
@@ -51,21 +52,24 @@ analysis = ProcessDataFromFile(
 from pygidfit import fit_data
 
 img_container_fit = fit_data(
-    polar_img = polar_img,              # 2D polar-transformed scattering image. Axis 0: polar angle (0–90°). Axis 1: radial coordinate |q| (Å⁻¹)
-    radius = radius,                    # 1D array of radial centers of peak boxes (Å⁻¹)
-    radius_width = radius_width,        # 1D array of radial widths of peak boxes (Å⁻¹)
-    angle = angle,                      # 1D array of angular centers of peak boxes (degrees)
-    angle_width = angle_width,          # 1D array of angular widths of peak boxes (degrees)
-    wavelength = 1e-10,                 # X-ray wavelength in meters. Used for missing-wedge calculation
-    q_xy_max = 3.5,                     # Upper cutoff for q_xy (Å⁻¹) used in peak classification
-    q_z_max = 3.5,                      # Upper cutoff for q_z (Å⁻¹) used in peak classification
-    clustering_distance_peaks = 10,     # Distance for ring clustering (in pixels)
-    clustering_distance_rings = 10,     # Distance for segments clustering (in pixels)
-    clustering_extend = 2,              # Number of pixels to extend the cluster size
-    debug = False,                      # Whether to plot fitting result and parameters)
-    peaks_pool = None)                  # List of pygidfit.Boxes or None (if don't use pool) 
+    polar_img=polar_img,              # 2D polar-transformed scattering image. Axis 0: polar angle (0–90°). Axis 1: radial coordinate |q| (Å⁻¹)
+    radius=radius,                    # 1D array of radial centers of peak boxes (Å⁻¹)
+    radius_width=radius_width,        # 1D array of radial widths of peak boxes (Å⁻¹)
+    angle=angle,                      # 1D array of angular centers of peak boxes (degrees)
+    angle_width=angle_width,          # 1D array of angular widths of peak boxes (degrees)
+    wavelength=1e-10,                 # X-ray wavelength in meters. Used for missing-wedge calculation
+    q_xy_max=3.5,                     # Upper cutoff for q_xy (Å⁻¹) used in peak classification
+    q_z_max=3.5,                      # Upper cutoff for q_z (Å⁻¹) used in peak classification
+    clustering_distance_peaks=10,     # Distance for ring clustering (in pixels)
+    clustering_distance_rings=10,     # Distance for segments clustering (in pixels)
+    clustering_extend=2,              # Number of pixels to extend the cluster size
+    debug=False,                      # Whether to plot fitting result and parameters)
+    peaks_pool=None,                  # List of pygidfit.Boxes or None (if don't use pool) 
+    theta_fixed=True,                 # Whether to fix Gaussian tilt angle to 0° (azimuthal direction) during fitting. Default is True
+)
 ```
 
+This package is included in the [`mlgidBASE` package](https://github.com/mlgid-project/mlgidBASE) and can be used as part of the `mlgid` pipeline.
 ## Overview
 
 pygidFIT is part of the machine learning pipeline for automated analysis of GID data. It is designed to analyze scattering data by fitting Gaussian profiles to peaks in both 1D and 2D data. It refines the peak positions revealed by the deep learning-based peak detection by automated conventional fitting during the postprocessing stage. 
