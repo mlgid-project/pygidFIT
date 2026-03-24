@@ -4,7 +4,7 @@ A Python package for fitting Gaussian functions to GID (Grazing-Incidence Wide-A
 pygidFIT is part of the comprehensive machine learning pipeline for automated analysis of GID data. The focus is on multiparallel execution for real-time sequential processing at the synchrotron and neutron facilities.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mlgid-project/pygidFIT/main/docs/images/mlgid_logo_pygidfit.png" width="400" alt="pygid">
+  <img src="https://raw.githubusercontent.com/mlgid-project/pygidFIT/main/docs/images/mlgid_logo_pygidfit.png" width="400" alt="pygidFIT">
 </p>
 
 
