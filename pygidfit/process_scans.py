@@ -462,9 +462,15 @@ class ProcessDataFromFile:
             for entry in self.entry_dict:
                 self.process_single_entry(entry)
             return
-        if not self.entry in self.entry_dict:
-            raise ValueError("entry not found in the NeXus file")
-        self.process_single_entry(self.entry)
+        elif isinstance(self.entry, list):
+            if not self.entry in self.entry_dict:
+                raise ValueError("entry not found in the NeXus file")
+            for entry in self.entry:
+                self.process_single_entry(entry)
+        else:
+            if not self.entry in self.entry_dict:
+                raise ValueError("entry not found in the NeXus file")
+            self.process_single_entry(self.entry)
 
     def process_single_entry(self, entry):
         """
@@ -488,9 +494,15 @@ class ProcessDataFromFile:
             for frame_num in range(frame_num_all):
                 self.process_single_frame(entry, frame_num)
             return
-        if self.frame_num >= frame_num_all:
-            raise ValueError("frame_num is out of range")
-        self.process_single_frame(entry, self.frame_num)
+        elif isinstance(self.frame_num, list):
+            for frame_num in self.frame_num:
+                if frame_num >= frame_num_all:
+                    raise ValueError("frame_num is out of range")
+                self.process_single_frame(entry, frame_num)
+        else:
+            if self.frame_num >= frame_num_all:
+                raise ValueError("frame_num is out of range")
+            self.process_single_frame(entry, self.frame_num)
 
 
     def process_single_frame(self, entry, frame_num):
