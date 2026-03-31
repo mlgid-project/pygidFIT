@@ -1,5 +1,5 @@
 # pygidFIT: Gaussian fitting for grazing incidence diffraction (GID) data
-
+[![Python version](https://img.shields.io/badge/python-3.9%7C3.10%7C3.11%7C3.12%7C3.13%7C3.14-blue.svg)](https://www.python.org/)
 A Python package for fitting Gaussian functions to GID (Grazing-Incidence Wide-Angle X-ray and Neutron Scattering) data. 
 pygidFIT is part of the comprehensive machine learning pipeline for automated analysis of GID data. The focus is on multiparallel execution for real-time sequential processing at the synchrotron and neutron facilities.
 
