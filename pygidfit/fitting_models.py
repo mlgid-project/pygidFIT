@@ -604,40 +604,58 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
             else:
                 p.value = 0.0
 
-    # Perform the fit
-    result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares")  # max_nfev=100
+    if debug:
+        debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, cluster)
+
+    try:
+        result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares")  # max_nfev=100
+        list_to_return = {
+            'params': dict(result.best_values),
+            'errors': {
+                name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
+                for name in result.params
+            },
+            'success': result.success,
+            'message': result.message,
+        }
+
+    except:
+        # print("Failed")
+        param_values = {name: p.value for name, p in params.items()}
+        param_errors = {name: np.nan for name in params}
+        result = None
+        list_to_return = {
+            'params': param_values,
+            'errors': param_errors,
+            'success': False,
+            'message': 'fit failed'
+        }
+
     time2 = time.time()
 
     if debug:
-        plot_peak_on_ring_cluster_debug(
-            X=X,
-            Y=Y,
-            roi=roi,
-            X_flat=X_flat,
-            Y_flat=Y_flat,
-            xmin=xmin,
-            ymin=ymin,
-            model=model,
-            result=result,
-            peak_indices=peak_indices,
-            ring_indices=ring_indices,
-            cluster=cluster,
-            boxes=boxes,
-            params=params,
-            time_preproc=(time1 - time0),
-            time_fit=(time2 - time1),
-            visualize_fit_3d_func=visualize_fit_3d
-        )
-
-    list_to_return = {
-        'params': dict(result.best_values),
-        'errors': {
-            name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-            for name in result.params
-        },
-        'success': result.success,
-        'message': result.message,
-    }
+        if params is not None:
+            plot_peak_on_ring_cluster_debug(
+                X=X,
+                Y=Y,
+                roi=roi,
+                X_flat=X_flat,
+                Y_flat=Y_flat,
+                xmin=xmin,
+                ymin=ymin,
+                model=model,
+                result=result,
+                peak_indices=peak_indices,
+                ring_indices=ring_indices,
+                cluster=cluster,
+                boxes=boxes,
+                params=params,
+                time_preproc=(time1 - time0),
+                time_fit=(time2 - time1),
+                visualize_fit_3d_func=visualize_fit_3d
+                )
+        else:
+            print("Parameters not available")
 
     return list_to_return
 
@@ -959,6 +977,60 @@ def process_cluster_shared(args):
 
     return fitting_result
 
+def debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, cluster):
+    import re
+
+    # --- ROI check ---
+    if roi.size == 0:
+        print("\n--- ROI ISSUE ---\nROI is empty\n-----------------\n")
+        print("cluster.bbox", cluster.bbox)
+        print("cluster", cluster)
+    elif not np.isfinite(roi).any():
+        print("\n--- ROI ISSUE ---\nROI contains only NaNs\n----------------------\n")
+        print("cluster.bbox", cluster.bbox)
+        print("cluster", cluster)
+
+    for name, p in params.items():
+        if p.min is None or p.max is None:
+            continue
+
+        invalid = np.isnan(p.min) or np.isnan(p.max)
+        out = not (p.min <= p.value <= p.max)
+
+        if not (invalid or out):
+            continue
+
+        print(f"\n--- PARAMETER ISSUE ---\n{name}: {p.value} [{p.min}, {p.max}]")
+        print("reason :", "NaN bounds" if invalid else "out of bounds")
+
+        # --- resolve box ---
+        idx = None
+        is_peak = False
+
+        m = re.search(r'g(\d+)_', name)
+        if m:
+            idx = int(m.group(1))
+            if idx < len(peak_indices):
+                idx = peak_indices[idx]
+                is_peak = True
+
+        m = re.search(r'g1d_(\d+)_', name)
+        if m:
+            i = int(m.group(1))
+            if i < len(ring_indices):
+                idx = ring_indices[i]
+
+        if idx is not None:
+            box = boxes[idx]
+            x0, y0, x1, y1 = map(lambda v: int(np.round(v)), box.limits)
+
+            print(f"box_idx: {idx}, limits: {box.limits}")
+            print(f"size   : ({x1-x0}, {y1-y0})")
+
+            if is_peak:
+                print(f"is_cut_qz: {getattr(box, 'is_cut_qz', 'N/A')}")
+
+        print("--------------------------------")
 
 ############## numba start
 
