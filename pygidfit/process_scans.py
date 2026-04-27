@@ -255,11 +255,15 @@ def fit_single_image(polar_img, boxes, clusters, theta_fixed=True, peaks_pool=No
     """
     mask = np.zeros_like(polar_img, dtype=bool)
 
-    for cluster in clusters:
-        if cluster.type == 'peaks' or cluster.type == 'both':
-            xmin, ymin, xmax, ymax = map(int, cluster.bbox)
-            mask[ymin:ymax, xmin:xmax] = True
+    # for cluster in clusters:
+    #     if cluster.type == 'peaks' or cluster.type == 'both':
+    #         xmin, ymin, xmax, ymax = map(int, cluster.bbox)
+    #         mask[ymin:ymax, xmin:xmax] = True
 
+    for box in boxes:
+        if not box.is_ring:
+            xmin, ymin, xmax, ymax = map(int, box.limits)
+            mask[ymin:ymax, xmin:xmax] = True
     masked_img = np.where(~mask, polar_img, np.nan)
 
     show_masked_images_debug(polar_img, masked_img, boxes, clusters, debug=debug)
@@ -543,6 +547,9 @@ class ProcessDataFromFile:
                 _get_polar_grid(img_reciprocal.shape, self.polar_shape, [0, 0]))
         polar_img = polar_conversion(img_reciprocal, self.yy, self.zz, cv2.INTER_LINEAR)
 
+        self.polar_img = polar_img
+        self.angular_range, self.radial_range = (0, self.ang_deg_max), (0,np.sqrt(np.nanmax(q_z)**2+np.nanmax(q_xy)**2))
+
         # load detected peaks
         detected_peaks = read_detected_peaks(self.nexus, entry, frame_num)
 
@@ -553,7 +560,7 @@ class ProcessDataFromFile:
                                      self.ang_deg_max,
                                      self.clustering_distance_peaks,
                                      self.clustering_distance_rings, self.clustering_extend, self.theta_fixed,
-                                     self.debug, self.multiprocessing, self.peaks_pool)
+                                     self.debug, self.multiprocessing, self.peaks_pool, ai)
 
         img_container_fit.score = detected_peaks['score']
         img_container_fit.visibility = detected_peaks['visibility']
@@ -581,7 +588,7 @@ def _set_fitting_metadata(**kwargs):
 def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_xy_max, q_z_max, q_abs_max, ang_deg_max = 90,
              clustering_distance_peaks = 10,
              clustering_distance_rings = 10, clustering_extend = 2, theta_fixed = False,
-             debug = False, multiprocessing = False, peaks_pool = None):
+             debug = False, multiprocessing = False, peaks_pool = None, ai=0):
     """
     Fit detected peaks in a polar image with Gaussian functions and cluster them.
 
@@ -640,7 +647,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
     boxes = boxes_preprocessing(detected_peaks,
                         polar_shape, wavelength,
                         q_abs_max,
-                        q_xy_max, q_z_max)
+                        q_xy_max, q_z_max, ai)
     # clustarization
     clusters = cluster_boxes_by_centers(boxes, clustering_distance_peaks, clustering_distance_rings, clustering_extend)
 
