@@ -6,7 +6,6 @@ class Boxes:
     limits: np.ndarray
     is_ring: bool
     index: int
-    # cluster_num: List[int] = field(default_factory=list)
     is_cut_qz: bool = False
     is_cut_qxy: bool = False
     fitting_result = None
@@ -32,18 +31,13 @@ def find_box_type(is_cut_qxy, is_cut_qz, box, q, q_xy_max, q_z_max, polar_shape_
     ang_vert = 0 if q < q_z_max else np.arccos(q_z_max/q)
     ratio = (np.pi/2 - ang_hor - ang_vert) / (np.pi/2)
     result3 = height > 0.6 * polar_shape_0 * ratio
-    # if result3:
-    #     print("found ring: ", np.rad2deg(ang_hor), np.rad2deg(ang_vert), ratio, xmin, ymin, xmax, ymax)
     return result1 or result3
-
-    #
-    # return True if shape <= height*1.5 else False
 
 
 
 
 def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
-                        q_xy_max, q_z_max):
+                        q_xy_max, q_z_max, ai):
 
     radius1_q = detected_peaks.radius - (detected_peaks.radius_width / 1) #2
     radius2_q = detected_peaks.radius + (detected_peaks.radius_width / 1) #2
@@ -82,7 +76,7 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
                            theta2_deg], axis=1)
     boxes_list = []
     for i in range(len(radius1)):
-        is_cut_qxy, is_cut_qz = _get_cut_flags(radius1_q[i],theta1_deg[i],radius2_q[i],theta2_deg[i],wavelength)
+        is_cut_qxy, is_cut_qz = _get_cut_flags(radius1_q[i],theta1_deg[i],radius2_q[i],theta2_deg[i],wavelength, ai)
         boxes_list.append(Boxes(boxes[i],
                                 find_box_type(is_cut_qxy, is_cut_qz, boxes[i],
                                               detected_peaks.radius[i], q_xy_max, q_z_max, polar_shape[0]),
@@ -96,17 +90,21 @@ def boxes_preprocessing(detected_peaks, polar_shape, wavelength, q_abs_max,
 
     return boxes_list
 
-def _get_cut_flags(radius1, theta1_deg, radius2, theta2_deg, wavelength):
+def _get_cut_flags(radius1, theta1_deg, radius2, theta2_deg, wavelength, ai):
     if theta1_deg < 2:
         is_cut_qxy = True
     else:
         is_cut_qxy = False
-    is_cut_qz = _get_missing_wedge_pol(wavelength, radius2, theta2_deg)
+    is_cut_qz = _get_missing_wedge_pol(wavelength, radius2, theta2_deg, ai)
     return is_cut_qz, is_cut_qxy
 
-def _get_missing_wedge_pol(wavelength, q_abs, phi):
+def _get_missing_wedge_pol(wavelength, q_abs, phi, ai):
     k = 2 * np.pi / float(wavelength)
-    return bool(np.abs(q_abs) > np.abs(2*k*np.cos(np.deg2rad(phi))))
+    phi = np.deg2rad(phi)
+    ai = np.deg2rad(ai)
+    l = q_abs * np.cos(phi) * np.cos(ai)
+    r = np.abs((q_abs ** 2 / 2 / k) - (q_abs * np.sin(phi) * np.sin(ai)))
+    return bool(l<r)
 
 
 def make_box_attributes(indices, boxes, fitting_result, type = None, debug = False):
