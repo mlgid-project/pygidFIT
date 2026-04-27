@@ -464,6 +464,8 @@ class ProcessDataFromFile:
         self.entry_dict = self.nexus.entry_dict
         if self.entry is None:
             for entry in self.entry_dict:
+                if self.entry_dict[entry]['img_type'] != 'img_gid_q':
+                    continue
                 self.process_single_entry(entry)
             return
         elif isinstance(self.entry, list):
