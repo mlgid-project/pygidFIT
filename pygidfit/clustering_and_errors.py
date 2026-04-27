@@ -90,54 +90,6 @@ def cluster_peaks(peak_indices, ring_indices, centers, boxes, is_ring_list, r, e
                 ymax_mask = min(ymax_current, ymax)
                 mask_boxes.append((xmin_mask, ymin_mask, xmax_mask, ymax_mask))
 
-        # if len(mask_boxes) != 0:
-        #     print("FOUND TO MASK")
-        #
-        #     import matplotlib.pyplot as plt
-        #     import matplotlib.patches as patches
-        #     fig, ax = plt.subplots()
-        #     cluster_rect = patches.Rectangle(
-        #         (xmin, ymin),
-        #         xmax - xmin,
-        #         ymax - ymin,
-        #         linewidth=2,
-        #         edgecolor='green',
-        #         facecolor='none',
-        #         label='Cluster'
-        #     )
-        #     ax.add_patch(cluster_rect)
-        #
-        #     for box in peak_boxes:
-        #         rect = patches.Rectangle(
-        #             (box[0], box[1]),
-        #             box[2] - box[0],
-        #             box[3] - box[1],
-        #             linewidth=1,
-        #             edgecolor='blue',
-        #             facecolor='none',
-        #             linestyle='--'
-        #         )
-        #         ax.add_patch(rect)
-        #
-        #     for box in mask_boxes:
-        #         rect = patches.Rectangle(
-        #             (box[0], box[1]),
-        #             box[2] - box[0],
-        #             box[3] - box[1],
-        #             linewidth=2,
-        #             edgecolor='red',
-        #             facecolor='none',
-        #             label='Mask'
-        #         )
-        #         ax.add_patch(rect)
-        #     ax.set_xlim(xmin-10, xmax+10)
-        #     ax.set_ylim(ymin-10, ymax+10)
-        #     ax.set_aspect('equal')
-        #     ax.set_xlabel(str(len(mask_boxes)) + str(cluster_peak_indices))
-        #     plt.legend()
-        #     plt.show()
-
-
         final_clusters.append(Cluster(
             bbox=bbox,
             bbox_length = int((xmax-xmin)*(ymax-ymin)),
