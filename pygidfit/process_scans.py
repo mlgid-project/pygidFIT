@@ -633,6 +633,8 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
         Use multiprocessing for fitting (default is False).
     peaks_pool : list or None, optional
         Pool of peaks from previous frames; allows sequential fitting updates (default is None).
+    ai: float, optional
+        Angle of incidence, deg (defualt if 0)
 
     Returns
     -------
