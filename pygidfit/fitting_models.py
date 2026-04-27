@@ -132,15 +132,32 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
 
 
     # Extract ROI from the image
-    roi = img[ymin:ymax, xmin:xmax]
+    roi = np.array(img[ymin:ymax, xmin:xmax])
     mask = np.isfinite(roi)
+
+    for box in boxes:
+        if box.index in cluster.indices:
+            continue
+        bx0, by0, bx1, by1 = box.limits
+
+        rx0 = int(np.clip(np.round(bx0 - xmin), 0, roi.shape[1]))
+        rx1 = int(np.clip(np.round(bx1 - xmin), 0, roi.shape[1]))
+        ry0 = int(np.clip(np.round(by0 - ymin), 0, roi.shape[0]))
+        ry1 = int(np.clip(np.round(by1 - ymin), 0, roi.shape[0]))
+        if rx1 > rx0 and ry1 > ry0:
+            mask[ry0:ry1, rx0:rx1] = False
+
+    roi[~mask] = np.nan
+
+
     for (mxmin, mymin, mxmax, mymax) in cluster.mask_boxes:
         rxmin = int(np.clip(mxmin - xmin, 0, roi.shape[1]))
         rxmax = int(np.clip(mxmax - xmin, 0, roi.shape[1]))
         rymin = int(np.clip(mymin - ymin, 0, roi.shape[0]))
         rymax = int(np.clip(mymax - ymin, 0, roi.shape[0]))
         mask[rymin:rymax, rxmin:rxmax] = False
-    roi[~mask] = np.nan
+    roi_bkg = np.array(roi)
+    roi_bkg[~mask] = np.nan
 
     Y, X = np.mgrid[ymin:ymax, xmin:xmax]
     data = roi.ravel()
@@ -153,7 +170,7 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
     Y_flat = Y_flat[valid_mask]
 
     # Plane params
-    a_bkg, b_bkg, c_bkg = 0, 0, np.nanpercentile(roi, 10)
+    a_bkg, b_bkg, c_bkg = 0, 0, np.nanpercentile(roi_bkg, 10)
     X_plane, Y_plane = X, Y
     Z_plane = a_bkg * X_plane + b_bkg * Y_plane + c_bkg
     roi_corrected = roi - Z_plane
@@ -224,8 +241,8 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
         params.add(f'g{i}_amplitude', value=amp, min=0)
         params.add(f'g{i}_radius', value=xo, min=x_bound_min, max=x_bound_max)
         params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
-        params.add(f'g{i}_radius_width', value=sigma_x, min=(x1-x0)/8, max = (x1-x0)/2)
-        params.add(f'g{i}_angle_width', value=sigma_y, min=(y1-y0)/8, max = (y1-y0)/2)
+        params.add(f'g{i}_radius_width', value=sigma_x, min=(x1-x0)/8, max = (x1-x0)) #/2
+        params.add(f'g{i}_angle_width', value=sigma_y, min=(y1-y0)/8, max = (y1-y0)) #/2
         params.add(f'g{i}_theta', value=0, vary=not theta_fixed)
 
     # Add parameters for the background plane
@@ -571,8 +588,8 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
         params.add(f'g{i}_amplitude', value=amp, min=0)
         params.add(f'g{i}_radius', value=xo, min=x_bound_min, max=x_bound_max)
         params.add(f'g{i}_angle', value=yo, min=y_bound_min, max=y_bound_max, vary = vary_y0)
-        params.add(f'g{i}_radius_width', value=sigma_x, min=(x1 - x0) / 8, max=(x1 - x0) / 2)
-        params.add(f'g{i}_angle_width', value=sigma_y, min=(y1 - y0) / 8, max=(y1 - y0) / 2)
+        params.add(f'g{i}_radius_width', value=sigma_x, min=(x1 - x0) / 8, max=(x1 - x0)) # / 2
+        params.add(f'g{i}_angle_width', value=sigma_y, min=(y1 - y0) / 8, max=(y1 - y0)) # / 2
         params.add(f'g{i}_theta', value=0, vary=not theta_fixed)
 
     # params.add('A', value=a, min = -1, max = 1)
@@ -865,8 +882,16 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
             amplitude=height_guess,
             radius_width=sigma_guess
         )
+
+        x_bound_min = np.clip(x0_box - (x1_box - x0_box) / 4, xmin, xmax)
+        x_bound_max = np.clip(x0_box + (x1_box - x0_box) / 4, xmin, xmax)
+
         gparams[f'g{i}_amplitude'].min = 0
         gparams[f'g{i}_radius_width'].min = 0
+        gparams[f'g{i}_radius'].min = x_bound_min
+        gparams[f'g{i}_radius_width'].max = x_bound_max
+
+
 
         params.update(gparams)
         model += gmod
