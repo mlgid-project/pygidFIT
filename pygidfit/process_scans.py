@@ -52,14 +52,14 @@ def calc_smpl_hor(ai, crit_angle, wavelength):
     crit_angle : float
         Critical angle of the sample (degrees).
     wavelength : float
-        Wavelength of the radiation (meters).
+        Wavelength of the radiation (Angstrom).
 
     Returns
     -------
     float
         Critical q value corresponding to the sample horizon (Å⁻¹).
     """
-    return np.pi * 4 / wavelength * np.sin(np.deg2rad((ai + crit_angle)) / 2) / 10
+    return np.pi * 4 / wavelength * np.sin(np.deg2rad((ai + crit_angle)) / 2)
 
 
 def img_preprocessing(img,  ai, crit_angle, wavelength, q_z):
