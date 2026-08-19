@@ -61,12 +61,26 @@ def cluster_peaks(peak_indices, ring_indices, centers, boxes, is_ring_list, r, e
 
         bbox = np.array([xmin, ymin, xmax, ymax])
 
+        # cluster_ring_indices = []
+        # if len(ring_indices) > 0:
+        #     cluster_x = centers[cluster_peak_indices][:, 0]
+        #     for i in ring_indices:
+        #         ring_x = centers[i, 0]
+        #         if np.any(np.abs(cluster_x - ring_x) <= r):
+        #             cluster_ring_indices.append(i)
+
         cluster_ring_indices = []
         if len(ring_indices) > 0:
-            cluster_x = centers[cluster_peak_indices][:, 0]
+            cluster_xmin = boxes[cluster_peak_indices, 0]
+            cluster_xmax = boxes[cluster_peak_indices, 2]
             for i in ring_indices:
-                ring_x = centers[i, 0]
-                if np.any(np.abs(cluster_x - ring_x) <= r):
+                ring_xmin = boxes[i, 0]
+                ring_xmax = boxes[i, 2]
+                distance = np.maximum(
+                    cluster_xmin - ring_xmax,
+                    ring_xmin - cluster_xmax
+                )
+                if np.any(distance <= r):
                     cluster_ring_indices.append(i)
 
         cluster_ring_indices = np.array(cluster_ring_indices, dtype=int)
