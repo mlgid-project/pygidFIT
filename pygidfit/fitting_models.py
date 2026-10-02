@@ -1,3 +1,5 @@
+import os
+import copy
 import numpy as np
 from lmfit import Model, Parameters
 from lmfit.models import LinearModel
@@ -9,10 +11,17 @@ from multiprocessing import Pool, shared_memory
 import time
 from math import sin, cos, exp
 import numexpr as ne
+from scipy.optimize import least_squares
 
 from pygidfit.box_utils import (
     make_box_attributes,
 )
+
+# Analytic Jacobian on/off switch and size cap: past ~6 Gaussian components,
+# scipy's own linear algebra for the (n_pixels x n_params) Jacobian matrix
+# costs more than the analytic shortcut saves (measured).
+_USE_ANALYTIC_JAC = os.environ.get("PYGIDFIT_ANALYTIC_JAC", "1") != "0"
+_MAX_ANALYTIC_JAC_COMPONENTS = 6
 
 def safe_center_of_mass(arr):
     mask = np.isfinite(arr)
@@ -25,6 +34,188 @@ def safe_center_of_mass(arr):
     com_y = np.nansum(y * arr) / norm
     com_x = np.nansum(x * arr) / norm
     return com_y, com_x
+
+
+@jit(nopython=True, fastmath=True)
+def _gaussian2d_jac_array(x, y, param_array, n):
+    """Analytic d(model)/d(param) for n 2D rotated Gaussians + a background
+    plane, as a dense (len(x), 6n+3) array, laid out like `sum_of_gaussians_and_plane`'s
+    own param_array (amp,xo,yo,sigx,sigy,theta per gaussian, then A,B,C)."""
+    npix = x.size
+    jac = np.zeros((npix, n * 6 + 3))
+    for i in range(n):
+        base = i * 6
+        amp = param_array[base]
+        xo = param_array[base + 1]
+        yo = param_array[base + 2]
+        sigx = param_array[base + 3]
+        sigy = param_array[base + 4]
+        theta = param_array[base + 5]
+
+        cos_t = cos(theta)
+        sin_t = sin(theta)
+        sin2t = 2.0 * sin_t * cos_t
+        cos2t = cos_t * cos_t - sin_t * sin_t
+        inv_sigx2 = 1.0 / (sigx * sigx)
+        inv_sigy2 = 1.0 / (sigy * sigy)
+
+        a = 0.5 * (cos_t * cos_t * inv_sigx2 + sin_t * sin_t * inv_sigy2)
+        b = 0.25 * sin2t * (inv_sigy2 - inv_sigx2)
+        c = 0.5 * (sin_t * sin_t * inv_sigx2 + cos_t * cos_t * inv_sigy2)
+
+        da_dsigx = -cos_t * cos_t / sigx ** 3
+        db_dsigx = 0.5 * sin2t / sigx ** 3
+        dc_dsigx = -sin_t * sin_t / sigx ** 3
+
+        da_dsigy = -sin_t * sin_t / sigy ** 3
+        db_dsigy = -0.5 * sin2t / sigy ** 3
+        dc_dsigy = -cos_t * cos_t / sigy ** 3
+
+        da_dtheta = 0.5 * sin2t * (inv_sigy2 - inv_sigx2)
+        db_dtheta = 0.5 * cos2t * (inv_sigy2 - inv_sigx2)
+        dc_dtheta = -da_dtheta
+
+        for k in range(npix):
+            dx = x.flat[k] - xo
+            dy = y.flat[k] - yo
+            expo = exp(-(a * dx * dx + 2 * b * dx * dy + c * dy * dy))
+            g = amp * expo
+            jac[k, base] = expo
+            jac[k, base + 1] = g * (2 * a * dx + 2 * b * dy)
+            jac[k, base + 2] = g * (2 * b * dx + 2 * c * dy)
+            jac[k, base + 3] = g * -(da_dsigx * dx * dx + 2 * db_dsigx * dx * dy + dc_dsigx * dy * dy)
+            jac[k, base + 4] = g * -(da_dsigy * dx * dx + 2 * db_dsigy * dx * dy + dc_dsigy * dy * dy)
+            jac[k, base + 5] = g * -(da_dtheta * dx * dx + 2 * db_dtheta * dx * dy + dc_dtheta * dy * dy)
+
+    idx_plane = n * 6
+    for k in range(npix):
+        jac[k, idx_plane] = x.flat[k]
+        jac[k, idx_plane + 1] = y.flat[k]
+        jac[k, idx_plane + 2] = 1.0
+    return jac
+
+
+def _gaussian2d_terms(params, x, y, n):
+    """d(model)/d(param) dict for n 2D rotated Gaussians + a background plane."""
+    param_array = np.empty(n * 6 + 3, dtype=np.float64)
+    pos = 0
+    for i in range(n):
+        param_array[pos] = params[f'g{i}_amplitude'].value
+        param_array[pos + 1] = params[f'g{i}_radius'].value
+        param_array[pos + 2] = params[f'g{i}_angle'].value
+        param_array[pos + 3] = params[f'g{i}_radius_width'].value
+        param_array[pos + 4] = params[f'g{i}_angle_width'].value
+        param_array[pos + 5] = params[f'g{i}_theta'].value
+        pos += 6
+    param_array[pos] = params['A'].value
+    param_array[pos + 1] = params['B'].value
+    param_array[pos + 2] = params['C'].value
+
+    full_jac = _gaussian2d_jac_array(x, y, param_array, n)
+
+    derivs = {}
+    pos = 0
+    for i in range(n):
+        derivs[f'g{i}_amplitude'] = full_jac[:, pos]
+        derivs[f'g{i}_radius'] = full_jac[:, pos + 1]
+        derivs[f'g{i}_angle'] = full_jac[:, pos + 2]
+        derivs[f'g{i}_radius_width'] = full_jac[:, pos + 3]
+        derivs[f'g{i}_angle_width'] = full_jac[:, pos + 4]
+        derivs[f'g{i}_theta'] = full_jac[:, pos + 5]
+        pos += 6
+    derivs['A'] = full_jac[:, pos]
+    derivs['B'] = full_jac[:, pos + 1]
+    derivs['C'] = full_jac[:, pos + 2]
+    return derivs
+
+
+def _gaussian1d_terms(params, x, count, prefix):
+    """d(model)/d(param) dict for `count` 1D Gaussians along x (ring profiles)."""
+    derivs = {}
+    for j in range(count):
+        amp = params[f'{prefix}{j}_amplitude'].value
+        center = params[f'{prefix}{j}_radius'].value
+        sigma = params[f'{prefix}{j}_radius_width'].value
+        dx = x - center
+        expo = np.exp(-0.5 * (dx / sigma) ** 2)
+        h = amp * expo
+        derivs[f'{prefix}{j}_amplitude'] = expo
+        derivs[f'{prefix}{j}_radius'] = h * dx / sigma ** 2
+        derivs[f'{prefix}{j}_radius_width'] = h * dx * dx / sigma ** 3
+    return derivs
+
+
+def _params_to_jacobian(params, derivs, weights):
+    """Jacobian of the residual (data - model) from a dict of model derivatives."""
+    columns = [-derivs[name] for name, par in params.items() if par.vary]
+    jac = np.column_stack(columns)
+    if weights is not None:
+        jac = jac * weights[:, None]
+    return jac
+
+
+def _fit_with_scipy(residual_func, jac_func, params, var_names, use_jac):
+    """Run scipy.optimize.least_squares directly (bypassing lmfit's own
+    per-iteration Parameters/Minimizer bookkeeping). `params` supplies the
+    initial values/bounds and is untouched; `residual_func`/`jac_func` take
+    the free-parameter vector and update their own closed-over working copy.
+    Returns the same {'params','errors','success','message'} shape lmfit's
+    Model.fit() used to, with uncertainties computed the same way lmfit does
+    (covariance = inv(J^T J) * reduced chi-square)."""
+    x0 = np.array([params[name].value for name in var_names], dtype=float)
+    lb = np.array([params[name].min if params[name].min is not None else -np.inf for name in var_names])
+    ub = np.array([params[name].max if params[name].max is not None else np.inf for name in var_names])
+
+    try:
+        result = least_squares(
+            residual_func, x0, jac=(jac_func if use_jac else '2-point'),
+            bounds=(lb, ub), method="trf",
+            ftol=1e-8, xtol=1e-8, gtol=1e-8, x_scale=1.0, loss='linear', f_scale=1.0,
+            max_nfev=500,
+        )
+
+        final_values = dict(zip(var_names, result.x))
+        all_values = {name: final_values.get(name, params[name].value) for name in params}
+
+        resid = result.fun
+        nfree = len(resid) - len(var_names)
+        redchi = float(np.sum(resid ** 2)) / max(1, nfree)
+
+        try:
+            jtj = result.jac.T @ result.jac
+            # A nearly (but not exactly) singular J^T J doesn't raise on inv() --
+            # it silently returns a huge, meaningless "uncertainty". Treat that
+            # the same as outright singular.
+            if np.linalg.cond(jtj) > 1e10:
+                raise np.linalg.LinAlgError("ill-conditioned J^T J")
+            cov = np.linalg.inv(jtj) * redchi
+            errors = {name: 0.0 for name in params}
+            for i, name in enumerate(var_names):
+                errors[name] = float(np.sqrt(cov[i, i]))
+        except np.linalg.LinAlgError:
+            errors = {name: np.nan for name in params}
+
+        return {
+            'params': all_values,
+            'errors': errors,
+            'success': bool(result.success),
+            'message': result.message,
+        }
+    except Exception:
+        return {
+            'params': {name: p.value for name, p in params.items()},
+            'errors': {name: np.nan for name in params},
+            'success': False,
+            'message': 'fit failed',
+        }
+
+
+class _DebugResultShim:
+    """Minimal stand-in for the lmfit ModelResult the debug plotting functions
+    expect (they only read result.params[name].value), now that fitting no
+    longer goes through lmfit.Model.fit()."""
+    def __init__(self, params):
+        self.params = params
 
 # @jit(nopython=True, fastmath=True)
 def two_d_rotated_gaussian(x, y, amp, xo, yo, sigma_x, sigma_y, theta):
@@ -106,14 +297,14 @@ def build_sum_gaussians_wrapper(n):
 
 def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     """Compute initial 2D Gaussian parameters from subarray."""
-    amp = np.nanmax(sub)
+    amp = np.nanpercentile(sub, 99)  # the literal max is a biased-high estimate of a noisy peak
     if debug:
         print("compute_initial_params")
     com_y, com_x = safe_center_of_mass(sub-np.nanpercentile(sub, 10))
     xo = x0 + com_x
     yo = y0 + com_y
-    sigma_x = max((x1 - x0) / 2 , 1.0)
-    sigma_y = max((y1 - y0) / 2 , 1.0)
+    sigma_x = max((x1 - x0) / 2 / 2.355, 1.0)  # FWHM to sigma conversion
+    sigma_y = max((y1 - y0) / 2 / 2.355, 1.0)
     return amp, xo, yo, sigma_x, sigma_y
 
 
@@ -135,17 +326,19 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
     roi = np.array(img[ymin:ymax, xmin:xmax])
     mask = np.isfinite(roi)
 
-    for box in boxes:
-        if box.index in cluster.indices:
-            continue
-        bx0, by0, bx1, by1 = box.limits
-
-        rx0 = int(np.clip(np.round(bx0 - xmin), 0, roi.shape[1]))
-        rx1 = int(np.clip(np.round(bx1 - xmin), 0, roi.shape[1]))
-        ry0 = int(np.clip(np.round(by0 - ymin), 0, roi.shape[0]))
-        ry1 = int(np.clip(np.round(by1 - ymin), 0, roi.shape[0]))
-        if rx1 > rx0 and ry1 > ry0:
-            mask[ry0:ry1, rx0:rx1] = False
+    # Mask out every other detected box overlapping this ROI, vectorized over
+    # all of `boxes` at once instead of a per-box Python loop.
+    cluster_idx_set = set(cluster.indices.tolist())
+    other_boxes = [b for b in boxes if b.index not in cluster_idx_set]
+    if other_boxes:
+        limits = np.array([b.limits for b in other_boxes])
+        h_roi, w_roi = roi.shape
+        rx0 = np.clip(np.round(limits[:, 0] - xmin), 0, w_roi).astype(int)
+        rx1 = np.clip(np.round(limits[:, 2] - xmin), 0, w_roi).astype(int)
+        ry0 = np.clip(np.round(limits[:, 1] - ymin), 0, h_roi).astype(int)
+        ry1 = np.clip(np.round(limits[:, 3] - ymin), 0, h_roi).astype(int)
+        for i in np.nonzero((rx1 > rx0) & (ry1 > ry0))[0]:
+            mask[ry0[i]:ry1[i], rx0[i]:rx1[i]] = False
 
     roi[~mask] = np.nan
 
@@ -198,8 +391,8 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
             amp = 0
             xo = (x0 + x1) / 2
             yo = (y0 + y1) / 2
-            sigma_x = max((x1 - x0) / 2 , 1.0)
-            sigma_y = max((y1 - y0) / 2 , 1.0)
+            sigma_x = max((x1 - x0) / 2 / 2.355, 1.0)
+            sigma_y = max((y1 - y0) / 2 / 2.355, 1.0)
         else:
             prev_box = None
             if peaks_pool is not None and len(peaks_pool) > 0:
@@ -255,52 +448,44 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
         return None, None, None
     time1 = time.time()
 
-    if False:
-        res = fit_peak_cluster_jaxfit_from_lmfit(data, X_flat, Y_flat, params)
-    if False:
-        res = fit_peak_cluster_numba_cuda_from_lmfit(data, X_flat, Y_flat, params, max_nfev=500)
+    n_peaks = len(cluster.indices)
+    use_jac = _USE_ANALYTIC_JAC and n_peaks <= _MAX_ANALYTIC_JAC_COMPONENTS
+    var_names = [name for name, p in params.items() if p.vary]
 
-    # Perform the fit
-    try:
-        result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares") # max_nfev=100
-        list_to_return = {
-            'params': dict(result.best_values),
-            'errors': {
-                name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-                for name in result.params
-            },
-            'success': result.success,
-            'message': result.message,
-        }
+    model_func = model.func
+    params_working = copy.deepcopy(params)
 
-    except:
-        # print("Failed")
-        param_values = {name: p.value for name, p in params.items()}
-        param_errors = {name: np.nan for name in params}
-        result = None
-        list_to_return = {
-            'params': param_values,
-            'errors': param_errors,
-            'success': False,
-            'message': 'fit failed'
-        }
+    def _residual(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        kwargs = {name: p.value for name, p in params_working.items()}
+        return data - model_func(X_flat, Y_flat, **kwargs)
+
+    def _jac(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        derivs = _gaussian2d_terms(params_working, X_flat, Y_flat, n_peaks)
+        return _params_to_jacobian(params_working, derivs, None)
+
+    # Fit directly via scipy (bypasses lmfit's own per-iteration bookkeeping)
+    list_to_return = _fit_with_scipy(_residual, _jac, params, var_names, use_jac)
     time2 = time.time()
 
     if debug:
-        if params is not None:
-            plot_peak_cluster_debug(
-                roi=roi,
-                xmin=xmin,
-                ymin=ymin,
-                cluster=cluster,
-                boxes=boxes,
-                params=params,
-                result=result,
-                time_preproc=(time1 - time0),
-                time_fit=(time2 - time1)
-            )
-        else:
-            print("Parameters not available")
+        for name, v in list_to_return['params'].items():
+            params_working[name].value = v
+        result = _DebugResultShim(params_working)
+        plot_peak_cluster_debug(
+            roi=roi,
+            xmin=xmin,
+            ymin=ymin,
+            cluster=cluster,
+            boxes=boxes,
+            params=params,
+            result=result,
+            time_preproc=(time1 - time0),
+            time_fit=(time2 - time1)
+        )
 
     return list_to_return
 
@@ -562,7 +747,7 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
             sigma_y = max((y1 - y0) / 2 / 2.355, 1.0)
         else:
         # Estimate initial parameters
-            amp = np.nanmax(sub)
+            amp = np.nanpercentile(sub, 99)
             yy, xx = np.indices(sub.shape)
             com_y, com_x = safe_center_of_mass(sub)
             xo = x0 + com_x
@@ -624,55 +809,53 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
     if debug:
         debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, cluster)
 
-    try:
-        result = model.fit(data, params=params, x=X_flat, y=Y_flat, max_nfev=500, method="least_squares")  # max_nfev=100
-        list_to_return = {
-            'params': dict(result.best_values),
-            'errors': {
-                name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-                for name in result.params
-            },
-            'success': result.success,
-            'message': result.message,
-        }
+    n_peaks, n_rings = len(peak_indices), len(ring_indices)
+    use_jac = _USE_ANALYTIC_JAC and (n_peaks + n_rings) <= _MAX_ANALYTIC_JAC_COMPONENTS
+    var_names = [name for name, p in params.items() if p.vary]
 
-    except:
-        # print("Failed")
-        param_values = {name: p.value for name, p in params.items()}
-        param_errors = {name: np.nan for name in params}
-        result = None
-        list_to_return = {
-            'params': param_values,
-            'errors': param_errors,
-            'success': False,
-            'message': 'fit failed'
-        }
+    model_func = model.func
+    params_working = copy.deepcopy(params)
+
+    def _residual(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        kwargs = {name: p.value for name, p in params_working.items()}
+        return data - model_func(X_flat, Y_flat, **kwargs)
+
+    def _jac(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        derivs = _gaussian2d_terms(params_working, X_flat, Y_flat, n_peaks)
+        derivs.update(_gaussian1d_terms(params_working, X_flat, n_rings, prefix='g1d_'))
+        return _params_to_jacobian(params_working, derivs, None)
+
+    list_to_return = _fit_with_scipy(_residual, _jac, params, var_names, use_jac)
 
     time2 = time.time()
 
     if debug:
-        if params is not None:
-            plot_peak_on_ring_cluster_debug(
-                X=X,
-                Y=Y,
-                roi=roi,
-                X_flat=X_flat,
-                Y_flat=Y_flat,
-                xmin=xmin,
-                ymin=ymin,
-                model=model,
-                result=result,
-                peak_indices=peak_indices,
-                ring_indices=ring_indices,
-                cluster=cluster,
-                boxes=boxes,
-                params=params,
-                time_preproc=(time1 - time0),
-                time_fit=(time2 - time1),
-                visualize_fit_3d_func=visualize_fit_3d
-                )
-        else:
-            print("Parameters not available")
+        for name, v in list_to_return['params'].items():
+            params_working[name].value = v
+        result = _DebugResultShim(params_working)
+        plot_peak_on_ring_cluster_debug(
+            X=X,
+            Y=Y,
+            roi=roi,
+            X_flat=X_flat,
+            Y_flat=Y_flat,
+            xmin=xmin,
+            ymin=ymin,
+            model=model,
+            result=result,
+            peak_indices=peak_indices,
+            ring_indices=ring_indices,
+            cluster=cluster,
+            boxes=boxes,
+            params=params,
+            time_preproc=(time1 - time0),
+            time_fit=(time2 - time1),
+            visualize_fit_3d_func=visualize_fit_3d
+            )
 
     return list_to_return
 
@@ -889,37 +1072,50 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         gparams[f'g{i}_amplitude'].min = 0
         gparams[f'g{i}_radius_width'].min = 0
         gparams[f'g{i}_radius'].min = x_bound_min
-        gparams[f'g{i}_radius_width'].max = x_bound_max
-
-
+        gparams[f'g{i}_radius_width'].max = x1_box - x0_box
 
         params.update(gparams)
-        model += gmod
 
-    try:
-        mask = np.isfinite(profile)
-        profile = profile[mask]
-        x =  x[mask]
-        result = model.fit(profile, params, x=x, max_nfev=500, method="least_squares",) #, max_nfev=100
-        param_values = dict(result.best_values)
-        param_errors = {
-            name: (result.params[name].stderr if result.params[name].stderr is not None else np.nan)
-            for name in result.params
-        }
-        success = result.success
-        message = result.message
-    except:
-        param_values = {name: p.value for name, p in params.items()}
-        param_errors = {name: np.nan for name in params}
-        success = False
-        message = "Failed"
+    n_rings_1d = len(cluster.indices)
+    use_jac = _USE_ANALYTIC_JAC and n_rings_1d <= _MAX_ANALYTIC_JAC_COMPONENTS
+    var_names = [name for name, p in params.items() if p.vary]
+    params_working = copy.deepcopy(params)
+
+    # Same math the composite LinearModel + sum(Model(gaussian_height)) evaluates
+    # to, computed directly (no lmfit composite-model overhead).
+    def _ring_model_at(p, xdata):
+        z = p['lin_slope'].value * xdata + p['lin_intercept'].value
+        for i in range(n_rings_1d):
+            z = z + gaussian_height(xdata, p[f'g{i}_radius'].value,
+                                    p[f'g{i}_amplitude'].value, p[f'g{i}_radius_width'].value)
+        return z
+
+    def _residual(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        return profile - _ring_model_at(params_working, x)
+
+    def _jac(xvec):
+        for name, v in zip(var_names, xvec):
+            params_working[name].value = v
+        derivs = _gaussian1d_terms(params_working, x, n_rings_1d, prefix='g')
+        derivs['lin_slope'] = x
+        derivs['lin_intercept'] = np.ones_like(x)
+        return _params_to_jacobian(params_working, derivs, None)
+
+    mask = np.isfinite(profile)
+    profile = profile[mask]
+    x = x[mask]
+    result = _fit_with_scipy(_residual, _jac, params, var_names, use_jac)
 
     if debug:
+        for name, v in result['params'].items():
+            params_working[name].value = v
         plt.figure(figsize=(6, 4))
         plt.plot(x, profile, 'b', label='Data')
         try:
-            plt.plot(x, result.best_fit, 'r-', label='Best Fit')
-            plt.plot(x, result.init_fit, 'c--', label='Initial Guess')
+            plt.plot(x, _ring_model_at(params_working, x), 'r-', label='Best Fit')
+            plt.plot(x, _ring_model_at(params, x), 'c--', label='Initial Guess')
         except:
             print("Fitting failed")
         plt.title(f"Cluster {cluster.indices.tolist()}")
@@ -929,12 +1125,7 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
         plt.tight_layout()
         plt.show()
 
-    return {
-        'params': param_values,
-        'errors': param_errors,
-        'success': success,
-        'message': message,
-    }
+    return result
 
 
 
@@ -1056,179 +1247,3 @@ def debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, c
                 print(f"is_cut_qz: {getattr(box, 'is_cut_qz', 'N/A')}")
 
         print("--------------------------------")
-
-############## numba start
-
-# import numpy as np
-# from numba import cuda
-# from scipy.optimize import least_squares
-# import cupy as cp
-# import math
-#
-# @cuda.jit
-# def compute_residuals_kernel(X, Y, zdata, params, residuals, N_gauss):
-#     idx = cuda.grid(1)
-#     if idx >= zdata.size:
-#         return
-#
-#     val = 0.0
-#     for g in range(N_gauss):
-#         base = g*6
-#         n0 = params[base]
-#         x0 = params[base+1]
-#         y0 = params[base+2]
-#         sigma_x = params[base+3]
-#         sigma_y = params[base+4]
-#         theta = params[base+5]
-#
-#         Xr = X[idx] - x0
-#         Yr = Y[idx] - y0
-#         gauss = math.exp(-0.5*(Xr**2/(sigma_x*sigma_x) + Yr**2/(sigma_y*sigma_y))) * n0
-#         val += gauss
-#
-#     A = params[-3]
-#     B = params[-2]
-#     C = params[-1]
-#     val += A + B*X[idx] + C*Y[idx]
-#
-#     residuals[idx] = zdata[idx]
-#     residuals[idx] -= val
-#
-# def fit_peak_cluster_numba_cuda_from_lmfit(zdata, X, Y, lmfit_params, max_nfev=500):
-#     param_list = []
-#     bounds_min = []
-#     bounds_max = []
-#
-#     n_peaks = max([int(name.split('_')[0][1:]) for name in lmfit_params.keys() if name.startswith('g')]) + 1
-#
-#     for i in range(n_peaks):
-#         for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
-#             pname = f'g{i}_{key}'
-#             p = lmfit_params[pname]
-#             param_list.append(p.value)
-#             bounds_min.append(-np.inf if p.min is None else p.min)
-#             bounds_max.append(np.inf if p.max is None else p.max)
-#
-#     for key in ['A', 'B', 'C']:
-#         p = lmfit_params[key]
-#         param_list.append(p.value)
-#         bounds_min.append(-np.inf if p.min is None else p.min)
-#         bounds_max.append(np.inf if p.max is None else p.max)
-#
-#     p0 = np.array(param_list)
-#     bounds = (np.array(bounds_min), np.array(bounds_max))
-#     X_gpu = cuda.to_device(X)
-#     Y_gpu = cuda.to_device(Y)
-#     zdata_gpu = cuda.to_device(zdata)
-#     residuals_gpu = cuda.device_array_like(zdata_gpu)
-#
-#     def compute_residuals(params):
-#         params_gpu = cuda.to_device(params)
-#         threadsperblock = 128
-#         blockspergrid = (zdata_gpu.size + threadsperblock - 1) // threadsperblock
-#         compute_residuals_kernel[blockspergrid, threadsperblock](
-#             X_gpu, Y_gpu, zdata_gpu, params_gpu, residuals_gpu, n_peaks
-#         )
-#         return residuals_gpu.copy_to_host()
-#
-#     numba_time0 = time.time()
-#     result = least_squares(compute_residuals, p0, bounds=bounds, max_nfev=max_nfev)
-#     # try:
-#     #     result = least_squares(compute_residuals, p0, bounds=bounds, max_nfev=max_nfev)
-#     # except:
-#     #     result = None
-#     numba_time1 = time.time()
-#     print("!!!!!!!!!!!! numba_time", (numba_time1 - numba_time0) * 1000)
-#     # print(f"numba result{result}")
-#
-#     return result
-
-############## numba end
-
-############## jaxfit start
-# import jax
-# import jax.numpy as jnp
-# from jaxfit import CurveFit
-#
-# def two_d_rotated_gaussian_jax(x, y, amp, xo, yo, sigx, sigy, theta):
-#     cos_t = jnp.cos(theta)
-#     sin_t = jnp.sin(theta)
-#     a = (cos_t**2)/(2*sigx**2) + (sin_t**2)/(2*sigy**2)
-#     b = -jnp.sin(2*theta)/(4*sigx**2) + jnp.sin(2*theta)/(4*sigy**2)
-#     c = (sin_t**2)/(2*sigx**2) + (cos_t**2)/(2*sigy**2)
-#     return amp * jnp.exp(-(a*(x-xo)**2 + 2*b*(x-xo)*(y-yo) + c*(y-yo)**2))
-#
-# def sum_of_gaussians_and_plane_jax(x, y, param_array, n):
-#     def add_gaussian(i, z):
-#         base = i*6
-#         amp = param_array[base]
-#         xo = param_array[base+1]
-#         yo = param_array[base+2]
-#         sigx = param_array[base+3]
-#         sigy = param_array[base+4]
-#         theta = param_array[base+5]
-#
-#         z += jax.lax.cond(
-#             jnp.any(jnp.isnan(jnp.array([amp, xo, yo, sigx, sigy, theta]))),
-#             lambda _: jnp.zeros_like(x),
-#             lambda _: two_d_rotated_gaussian_jax(x, y, amp, xo, yo, sigx, sigy, theta),
-#             operand=None
-#         )
-#         return z
-#
-#     z_init = jnp.zeros_like(x)
-#     z = jax.lax.fori_loop(0, n, add_gaussian, z_init)
-#
-#     a_plane = param_array[n*6] if n*6 < len(param_array) else 0
-#     b_plane = param_array[n*6+1] if n*6+1 < len(param_array) else 0
-#     c_plane = param_array[n*6+2] if n*6+2 < len(param_array) else 0
-#     z += a_plane * x + b_plane * y + c_plane
-#     return z
-#
-# def fit_peak_cluster_jaxfit_from_lmfit(data, X_flat, Y_flat, lm_params):
-#     param_names = list(lm_params.keys())
-#     n_peaks = sum(1 for name in param_names if name.startswith('g') and '_amplitude' in name)
-#
-#     print("n_peaks", n_peaks)
-#
-#     param_list = []
-#     bounds_min = []
-#     bounds_max = []
-#
-#     for i in range(n_peaks):
-#         for key in ['amplitude', 'radius', 'angle', 'radius_width', 'angle_width', 'theta']:
-#             pname = f'g{i}_{key}'
-#             p = lm_params[pname]
-#             param_list.append(p.value)
-#             bounds_min.append(-jnp.inf if p.min is None else p.min)
-#             bounds_max.append(jnp.inf if p.max is None else p.max)
-#
-#     for pname in ['A', 'B', 'C']:
-#         p = lm_params[pname]
-#         param_list.append(p.value)
-#         bounds_min.append(-jnp.inf if p.min is None else p.min)
-#         bounds_max.append(jnp.inf if p.max is None else p.max)
-#
-#     params_jax = jnp.array(param_list, dtype=jnp.float32)
-#     print("params_jax", params_jax)
-#     bounds = (jnp.array(bounds_min, dtype=jnp.float32), jnp.array(bounds_max, dtype=jnp.float32))
-#
-#     coords_tuple = [jnp.array(X_flat), jnp.array(Y_flat)]
-#     jcf = CurveFit()
-#
-#     def model_for_fit(coords, *param_array):
-#         param_array = jnp.array(param_array)
-#         return sum_of_gaussians_and_plane_jax(coords[0], coords[1], param_array, n_peaks).ravel()
-#
-#     jaxfit_time0 = time.time()
-#     try:
-#         popt, pcov = jcf.curve_fit(model_for_fit, coords_tuple, data, p0=params_jax, bounds=bounds)
-#     except:
-#         popt, pcov = None, None
-#     jaxfit_time1 = time.time()
-#     print("jaxfit_time", (jaxfit_time1 - jaxfit_time0) * 1000)
-#     print("popt", popt)
-#     return popt, pcov
-
-############## jaxfit end
-
