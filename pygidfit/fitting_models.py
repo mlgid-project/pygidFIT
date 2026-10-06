@@ -154,25 +154,44 @@ def _params_to_jacobian(params, derivs, weights):
     return jac
 
 
-def _fit_with_scipy(residual_func, jac_func, params, var_names, use_jac):
+def _fit_with_scipy(residual_func, jac_func, params, var_names, use_jac, prefer_lsmr=False):
     """Run scipy.optimize.least_squares directly (bypassing lmfit's own
     per-iteration Parameters/Minimizer bookkeeping). `params` supplies the
     initial values/bounds and is untouched; `residual_func`/`jac_func` take
     the free-parameter vector and update their own closed-over working copy.
     Returns the same {'params','errors','success','message'} shape lmfit's
     Model.fit() used to, with uncertainties computed the same way lmfit does
-    (covariance = inv(J^T J) * reduced chi-square)."""
+    (covariance = inv(J^T J) * reduced chi-square).
+
+    `prefer_lsmr=True` tries the iterative 'lsmr' trust-region solver first
+    instead of the default 'exact' (SVD-based), falling back to the other on
+    failure"""
     x0 = np.array([params[name].value for name in var_names], dtype=float)
     lb = np.array([params[name].min if params[name].min is not None else -np.inf for name in var_names])
     ub = np.array([params[name].max if params[name].max is not None else np.inf for name in var_names])
 
-    try:
-        result = least_squares(
-            residual_func, x0, jac=(jac_func if use_jac else '2-point'),
+    def _solve(tr_solver):
+        kwargs = dict(
+            jac=(jac_func if use_jac else '2-point'),
             bounds=(lb, ub), method="trf",
             ftol=1e-8, xtol=1e-8, gtol=1e-8, x_scale=1.0, loss='linear', f_scale=1.0,
             max_nfev=500,
         )
+        if tr_solver is not None:
+            kwargs['tr_solver'] = tr_solver
+        return least_squares(residual_func, x0, **kwargs)
+
+    try:
+        first_solver, fallback_solver = ('lsmr', None) if prefer_lsmr else (None, 'lsmr')
+        result = _solve(first_solver)
+        if not result.success:
+            # The default 'exact' trust-region subproblem solver occasionally
+            # fails to converge where 'lsmr' (iterative) handles it fine, and
+            # vice versa -- only retry on an actual failure, so this never
+            # touches the (overwhelming majority) success path.
+            retry = _solve(fallback_solver)
+            if retry.success:
+                result = retry
 
         final_values = dict(zip(var_names, result.x))
         all_values = {name: final_values.get(name, params[name].value) for name in params}
@@ -308,7 +327,7 @@ def compute_initial_params(sub, x0, y0, x1, y1, debug = False):
     return amp, xo, yo, sigma_x, sigma_y
 
 
-def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, debug=False):
+def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, debug=False, hot_pixel_percentile=None):
     """Fit a cluster of 2D Gaussian peaks with a background plane over the bounding box."""
     # Extract ROI bounding box from the cluster
     time0 = time.time()
@@ -339,6 +358,12 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
         ry1 = np.clip(np.round(limits[:, 3] - ymin), 0, h_roi).astype(int)
         for i in np.nonzero((rx1 > rx0) & (ry1 > ry0))[0]:
             mask[ry0[i]:ry1[i], rx0[i]:rx1[i]] = False
+
+    # Hot pixels: this ROI's own percentile, folded into the same mask/roi
+    # write as the other-box exclusion above.
+    if hot_pixel_percentile is not None and roi.size > 0 and np.isfinite(roi).any():
+        hot_thresh = np.nanpercentile(roi, hot_pixel_percentile)
+        mask &= ~(roi > hot_thresh)
 
     roi[~mask] = np.nan
 
@@ -446,6 +471,19 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
     # Exit if no valid peaks
     if len(params) == 0:
         return None, None, None
+
+    # An entirely-invalid background region (e.g. a detector gap in real
+    # data) makes np.nanpercentile return NaN, which propagates into C's
+    # bounds too -- sanitize both, not just values, or scipy rejects the
+    # (now-valid) value as outside (still-NaN) bounds.
+    for name, p in params.items():
+        if np.isnan(p.value):
+            p.value = 1.0 if "amplitude" in name else 0.0
+        if p.min is not None and np.isnan(p.min):
+            p.min = -np.inf
+        if p.max is not None and np.isnan(p.max):
+            p.max = np.inf
+
     time1 = time.time()
 
     n_peaks = len(cluster.indices)
@@ -472,20 +510,23 @@ def fit_peak_cluster(cluster, boxes, img, peaks_pool = None, theta_fixed=False, 
     time2 = time.time()
 
     if debug:
-        for name, v in list_to_return['params'].items():
-            params_working[name].value = v
-        result = _DebugResultShim(params_working)
-        plot_peak_cluster_debug(
-            roi=roi,
-            xmin=xmin,
-            ymin=ymin,
-            cluster=cluster,
-            boxes=boxes,
-            params=params,
-            result=result,
-            time_preproc=(time1 - time0),
-            time_fit=(time2 - time1)
-        )
+        try:
+            for name, v in list_to_return['params'].items():
+                params_working[name].value = v
+            result = _DebugResultShim(params_working)
+            plot_peak_cluster_debug(
+                roi=roi,
+                xmin=xmin,
+                ymin=ymin,
+                cluster=cluster,
+                boxes=boxes,
+                params=params,
+                result=result,
+                time_preproc=(time1 - time0),
+                time_fit=(time2 - time1)
+            )
+        except Exception as e:
+            print(f"[debug plot failed for cluster {cluster.indices.tolist()}, skipping]: {e}")
 
     return list_to_return
 
@@ -682,7 +723,7 @@ def visualize_fit_3d(X, Y, Z_data, Z_fit):
 
 
 
-def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug = False):
+def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug = False, hot_pixel_percentile=None):
     time0 = time.time()
     xmin, ymin, xmax, ymax = np.round(cluster.bbox).astype(int)
     h, w = img.shape
@@ -692,8 +733,32 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
     ymax = np.clip(ymax, 0, h)
 
     # Extract ROI from the image
-    roi = img[ymin:ymax, xmin:xmax]
+    roi = np.array(img[ymin:ymax, xmin:xmax])
     y_len, x_len = roi.shape
+
+    # Mask out every other detected box overlapping this ROI, same as
+    # fit_peak_cluster -- otherwise a wide ring's bbox can pull in unrelated
+    # peaks' pixels uncorrected into this cluster's background and fit data.
+    mask = np.isfinite(roi)
+    cluster_idx_set = set(cluster.indices.tolist())
+    other_boxes = [b for b in boxes if b.index not in cluster_idx_set]
+    if other_boxes:
+        limits = np.array([b.limits for b in other_boxes])
+        h_roi, w_roi = roi.shape
+        rx0 = np.clip(np.round(limits[:, 0] - xmin), 0, w_roi).astype(int)
+        rx1 = np.clip(np.round(limits[:, 2] - xmin), 0, w_roi).astype(int)
+        ry0 = np.clip(np.round(limits[:, 1] - ymin), 0, h_roi).astype(int)
+        ry1 = np.clip(np.round(limits[:, 3] - ymin), 0, h_roi).astype(int)
+        for i in np.nonzero((rx1 > rx0) & (ry1 > ry0))[0]:
+            mask[ry0[i]:ry1[i], rx0[i]:rx1[i]] = False
+
+    # Hot pixels: this ROI's own percentile, folded into the same mask/roi
+    # write as the other-box exclusion above.
+    if hot_pixel_percentile is not None and roi.size > 0 and np.isfinite(roi).any():
+        hot_thresh = np.nanpercentile(roi, hot_pixel_percentile)
+        mask &= ~(roi > hot_thresh)
+
+    roi[~mask] = np.nan
 
     # Create grid coordinates
     # Y, X = np.mgrid[0:y_len, 0:x_len]
@@ -805,9 +870,16 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
                 p.value = 1.0
             else:
                 p.value = 0.0
+        if p.min is not None and np.isnan(p.min):
+            p.min = -np.inf
+        if p.max is not None and np.isnan(p.max):
+            p.max = np.inf
 
     if debug:
-        debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, cluster)
+        try:
+            debug_params_out_of_bounds(params, boxes, peak_indices, ring_indices, roi, cluster)
+        except Exception as e:
+            print(f"[debug_params_out_of_bounds failed for cluster {cluster.indices.tolist()}, skipping]: {e}")
 
     n_peaks, n_rings = len(peak_indices), len(ring_indices)
     use_jac = _USE_ANALYTIC_JAC and (n_peaks + n_rings) <= _MAX_ANALYTIC_JAC_COMPONENTS
@@ -829,33 +901,42 @@ def fit_peak_on_ring_cluster(cluster, boxes, img, peaks_pool, theta_fixed, debug
         derivs.update(_gaussian1d_terms(params_working, X_flat, n_rings, prefix='g1d_'))
         return _params_to_jacobian(params_working, derivs, None)
 
+    # A size-based "prefer lsmr for n_components>=4" rule was tried here, but
+    # it was tuned against clusters whose ROI leaked unrelated boxes' pixels
+    # into the fit (see the masking added above). With that fixed, the rule
+    # no longer reliably predicts anything -- it can make lsmr fail outright
+    # where plain 'exact' already succeeds quickly. Back to unconditional
+    # 'exact' first, 'lsmr' only as a retry on an actual failure.
     list_to_return = _fit_with_scipy(_residual, _jac, params, var_names, use_jac)
 
     time2 = time.time()
 
     if debug:
-        for name, v in list_to_return['params'].items():
-            params_working[name].value = v
-        result = _DebugResultShim(params_working)
-        plot_peak_on_ring_cluster_debug(
-            X=X,
-            Y=Y,
-            roi=roi,
-            X_flat=X_flat,
-            Y_flat=Y_flat,
-            xmin=xmin,
-            ymin=ymin,
-            model=model,
-            result=result,
-            peak_indices=peak_indices,
-            ring_indices=ring_indices,
-            cluster=cluster,
-            boxes=boxes,
-            params=params,
-            time_preproc=(time1 - time0),
-            time_fit=(time2 - time1),
-            visualize_fit_3d_func=visualize_fit_3d
-            )
+        try:
+            for name, v in list_to_return['params'].items():
+                params_working[name].value = v
+            result = _DebugResultShim(params_working)
+            plot_peak_on_ring_cluster_debug(
+                X=X,
+                Y=Y,
+                roi=roi,
+                X_flat=X_flat,
+                Y_flat=Y_flat,
+                xmin=xmin,
+                ymin=ymin,
+                model=model,
+                result=result,
+                peak_indices=peak_indices,
+                ring_indices=ring_indices,
+                cluster=cluster,
+                boxes=boxes,
+                params=params,
+                time_preproc=(time1 - time0),
+                time_fit=(time2 - time1),
+                visualize_fit_3d_func=visualize_fit_3d
+                )
+        except Exception as e:
+            print(f"[debug plot failed for cluster {cluster.indices.tolist()}, skipping]: {e}")
 
     return list_to_return
 
@@ -1109,21 +1190,21 @@ def fit_ring_cluster(cluster, boxes, img,  peaks_pool, debug = False):
     result = _fit_with_scipy(_residual, _jac, params, var_names, use_jac)
 
     if debug:
-        for name, v in result['params'].items():
-            params_working[name].value = v
-        plt.figure(figsize=(6, 4))
-        plt.plot(x, profile, 'b', label='Data')
         try:
+            for name, v in result['params'].items():
+                params_working[name].value = v
+            plt.figure(figsize=(6, 4))
+            plt.plot(x, profile, 'b', label='Data')
             plt.plot(x, _ring_model_at(params_working, x), 'r-', label='Best Fit')
             plt.plot(x, _ring_model_at(params, x), 'c--', label='Initial Guess')
-        except:
-            print("Fitting failed")
-        plt.title(f"Cluster {cluster.indices.tolist()}")
-        plt.xlabel('X [pixels]')
-        plt.ylabel('Mean intensity')
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+            plt.title(f"Cluster {cluster.indices.tolist()}")
+            plt.xlabel('X [pixels]')
+            plt.ylabel('Mean intensity')
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+        except Exception as e:
+            print(f"[debug plot failed for cluster {cluster.indices.tolist()}, skipping]: {e}")
 
     return result
 

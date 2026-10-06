@@ -219,7 +219,7 @@ def show_masked_images_debug(img, masked_img, boxes, clusters, debug=True):
 
 
 def fit_single_image(polar_img, boxes, clusters, theta_fixed=True, peaks_pool=None, debug=False,
-                     multiprocessing=False):
+                     multiprocessing=False, hot_pixel_percentile=None):
     """
     Fit clusters in a polar-transformed image with Gaussian models.
 
@@ -265,8 +265,14 @@ def fit_single_image(polar_img, boxes, clusters, theta_fixed=True, peaks_pool=No
             xmin, ymin, xmax, ymax = map(int, box.limits)
             mask[ymin:ymax, xmin:xmax] = True
     masked_img = np.where(~mask, polar_img, np.nan)
+    # Hot-pixel filtering is per-ROI (see fit_peak_cluster/fit_peak_on_ring_cluster),
+    # not applied here -- fit_ring_cluster has no equivalent yet.
 
-    show_masked_images_debug(polar_img, masked_img, boxes, clusters, debug=debug)
+    if debug:
+        try:
+            show_masked_images_debug(polar_img, masked_img, boxes, clusters, debug=debug)
+        except Exception as e:
+            print(f"[show_masked_images_debug failed, skipping]: {e}")
 
     time0 = time.time()
 
@@ -278,11 +284,13 @@ def fit_single_image(polar_img, boxes, clusters, theta_fixed=True, peaks_pool=No
                 fitting_result = fit_ring_cluster(cluster, boxes, masked_img, peaks_pool, debug)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
             elif cluster.type == 'peaks':
-                fitting_result = fit_peak_cluster(cluster, boxes, polar_img, peaks_pool, theta_fixed, debug)
+                fitting_result = fit_peak_cluster(cluster, boxes, polar_img, peaks_pool, theta_fixed, debug,
+                                                  hot_pixel_percentile=hot_pixel_percentile)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
         for cluster in clusters:
             if cluster.type == 'both':
-                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, polar_img, peaks_pool, theta_fixed, debug)
+                fitting_result = fit_peak_on_ring_cluster(cluster, boxes, polar_img, peaks_pool, theta_fixed, debug,
+                                                           hot_pixel_percentile=hot_pixel_percentile)
                 make_box_attributes(cluster.indices, boxes, fitting_result, cluster.type, debug)
 
     time1 = time.time()
@@ -590,7 +598,8 @@ def _set_fitting_metadata(**kwargs):
 def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_xy_max, q_z_max, q_abs_max, ang_deg_max = 90,
              clustering_distance_peaks = 10,
              clustering_distance_rings = 10, clustering_extend = 2, theta_fixed = False,
-             debug = False, multiprocessing = False, peaks_pool = None, ai=0):
+             debug = False, multiprocessing = False, peaks_pool = None, ai=0,
+             hot_pixel_percentile = 99.9):
     """
     Fit detected peaks in a polar image with Gaussian functions and cluster them.
 
@@ -637,6 +646,12 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
         Pool of peaks from previous frames; allows sequential fitting updates (default is None).
     ai: float, optional
         Angle of incidence, deg (defualt if 0)
+    hot_pixel_percentile : float or None, optional
+        If set, each cluster's ROI masks out pixels above this percentile of
+        its own pixels (a hot/dead-pixel detector artifact, not real signal),
+        at the same point other clusters' boxes are already excluded. Off if
+        None; detection box positions are unaffected, since those come from
+        `radius`/`angle`/etc., not from `polar_img`.
 
     Returns
     -------
@@ -646,6 +661,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
         Updated peaks pool if `peaks_pool` was provided, otherwise None.
     """
     polar_shape = polar_img.shape
+
     # boxes preprocessing
     detected_peaks = DetectedPeaks(radius = radius, radius_width = radius_width, angle = angle, angle_width = angle_width)
     boxes = boxes_preprocessing(detected_peaks,
@@ -657,7 +673,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
 
     # real calling of fitting
     fit_single_image(polar_img, boxes, clusters, theta_fixed=theta_fixed, peaks_pool=peaks_pool, debug=debug,
-                     multiprocessing=multiprocessing)
+                     multiprocessing=multiprocessing, hot_pixel_percentile=hot_pixel_percentile)
 
     img_container = _data2container(boxes, polar_shape, q_abs_max, ang_deg_max,
                                     q_xy_max, q_z_max,
