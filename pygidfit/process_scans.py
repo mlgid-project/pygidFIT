@@ -300,7 +300,7 @@ def fit_single_image(polar_img, boxes, clusters, theta_fixed=True, peaks_pool=No
 
 
 
-def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg, qz_max, qxy_max):
+def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg):
     """
     Computes qx and qy from radius and angle (in degrees) and propagates errors.
 
@@ -320,17 +320,10 @@ def compute_qzqxy_with_error(radius, sigma_radius, angle_deg, sigma_angle_deg, q
     sigma_qxy = np.sqrt((np.cos(theta) * sigma_radius) ** 2 + (radius * np.sin(theta) * sigma_theta) ** 2)
     sigma_array = np.array([sigma_qz, sigma_qxy])
 
-    qz = np.minimum(qz, qz_max)
-    qxy = np.sqrt(radius ** 2 - qz ** 2)
-    qxy = np.minimum(qxy, qxy_max)
-    qz = np.sqrt(radius ** 2 - qxy ** 2)
-
-    angle_deg = np.rad2deg(np.arctan2(qz, qxy))
-
     q_array = np.array([qz, qxy])
     return q_array, sigma_array, radius, angle_deg
 
-def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy_max , q_z_max, wavelength):
+def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, wavelength):
 
     img_container = ImageContainer()
     img_container.amplitude = np.array([box.fitting_result['amplitude'] for box in boxes])
@@ -379,8 +372,7 @@ def _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, q_xy_max , q_z_m
     img_container.angle_width_err = np.array([box.fitting_error['angle_width'] for box in boxes])/polar_shape[0]*ang_deg_max
 
     img_container.qzqxyboxes, img_container.qzqxyboxes_err, img_container.radius, img_container.angle = compute_qzqxy_with_error(
-        img_container.radius, img_container.radius_err, img_container.angle, img_container.angle_err,
-        q_z_max, q_xy_max)
+        img_container.radius, img_container.radius_err, img_container.angle, img_container.angle_err)
     # img_container.qzqxyboxes = np.array([img_container.radius * np.sin(np.deg2rad(img_container.angle)),
     #                                      img_container.radius * np.cos(np.deg2rad(img_container.angle))])
 
@@ -675,9 +667,7 @@ def fit_data(polar_img, radius, radius_width, angle, angle_width, wavelength, q_
     fit_single_image(polar_img, boxes, clusters, theta_fixed=theta_fixed, peaks_pool=peaks_pool, debug=debug,
                      multiprocessing=multiprocessing, hot_pixel_percentile=hot_pixel_percentile)
 
-    img_container = _data2container(boxes, polar_shape, q_abs_max, ang_deg_max,
-                                    q_xy_max, q_z_max,
-                                    wavelength)
+    img_container = _data2container(boxes, polar_shape, q_abs_max, ang_deg_max, wavelength)
     if peaks_pool is None:
         return img_container, None
     else:
